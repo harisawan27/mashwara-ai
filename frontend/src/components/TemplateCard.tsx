@@ -4,6 +4,7 @@
 
 import { useNavigate } from "react-router-dom";
 import type { TemplateType, TemplateMetadata } from "../types/meeting";
+import { useTranslation } from "../i18n";
 
 interface TemplateCardProps {
   templateType: TemplateType;
@@ -46,14 +47,18 @@ const accentMap: Record<string, { border: string; glow: string; bg: string; text
 
 export default function TemplateCard({ templateType, metadata, index }: TemplateCardProps) {
   const navigate = useNavigate();
+  const { t, isRTL } = useTranslation();
   const accent = accentMap[metadata.accentColor] || accentMap.blue;
+
+  const displayName = t.templates[templateType]?.name || metadata.name;
+  const displayDescription = t.templates[templateType]?.description || metadata.description;
 
   return (
     <button
       id={`template-card-${templateType.toLowerCase()}`}
       onClick={() => navigate(`/meeting/${templateType}`)}
       className={`
-        group glass-elevated w-full text-left rounded-2xl p-6
+        group glass-elevated w-full text-start rounded-2xl p-6
         transition-all duration-300 ease-out cursor-pointer
         hover:translate-y-[-2px] ${accent.border} ${accent.glow}
         animate-slide-up opacity-0
@@ -66,7 +71,7 @@ export default function TemplateCard({ templateType, metadata, index }: Template
           {metadata.icon}
         </div>
         <div className="w-8 h-8 rounded-full bg-white/[0.03] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-300 group-hover:translate-x-0.5">
-          <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <svg className={`w-3.5 h-3.5 text-slate-400 ${isRTL ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
           </svg>
         </div>
@@ -74,17 +79,19 @@ export default function TemplateCard({ templateType, metadata, index }: Template
 
       {/* Title */}
       <h3 className="text-lg font-semibold text-white mb-1.5 group-hover:text-white/90 transition-colors">
-        {metadata.name}
+        {displayName}
       </h3>
 
       {/* Description */}
       <p className="text-sm text-slate-500 mb-5 leading-relaxed">
-        {metadata.description}
+        {displayDescription}
       </p>
 
       {/* Example pill */}
       <div className="flex items-center gap-2">
-        <span className="text-[10px] uppercase tracking-wider text-slate-600 font-medium">Example</span>
+        <span className="text-[10px] uppercase tracking-wider text-slate-600 font-medium">
+          {isRTL ? "مثال" : "Example"}
+        </span>
         <span className={`text-xs ${accent.text} opacity-70`}>"{metadata.exampleDecision}"</span>
       </div>
     </button>

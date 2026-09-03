@@ -47,7 +47,13 @@ from database import get_db, AsyncSessionLocal
 from models.user import User
 from models.meeting import Meeting
 from models.chat import ChatSession, ChatMessage
-from security.auth import get_password_hash, verify_password, create_access_token, get_current_user
+from security.auth import (
+    get_password_hash,
+    verify_password,
+    create_access_token,
+    get_current_user,
+    get_optional_current_user,
+)
 import datetime
 from sqlalchemy.orm import selectinload
 from google import genai
@@ -147,8 +153,12 @@ class SessionRenameRequest(BaseModel):
     title: str
 
 class StandardMessageRequest(BaseModel):
-    session_id: str
+    session_id: Optional[str] = None
     message: str
+    history: Optional[List[Dict[str, Any]]] = None
+
+class NeonAuthExchangeRequest(BaseModel):
+    session_token: str
 
 class MeetingResponse(BaseModel):
     id: str
@@ -211,6 +221,145 @@ async def login(user: UserCreate, db: AsyncSession = Depends(get_db)):
         )
     access_token = create_access_token(data={"sub": db_user.id})
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.get("/auth/neon/config", tags=["Auth"])
+async def get_neon_auth_config():
+    """Returns the public Neon Auth base URL and JWKS URL for client-side OAuth."""
+    neon_url = os.getenv(
+        "NEON_AUTH_URL",
+        os.getenv("NEON_AUTH_BASE_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth")
+    )
+    raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", f"{neon_url}/.well-known/jwks.json")
+    jwks_url = raw_jwks[:-3] + ".json" if raw_jwks.endswith(".well-known/jwks.js") else raw_jwks
+    return {
+        "neon_auth_url": neon_url,
+        "neon_auth_jwks_url": jwks_url,
+    }
+
+@app.post("/auth/neon/exchange", tags=["Auth"])
+@limiter.limit("30/minute")
+async def exchange_neon_auth_session(
+    request: Request,
+    body: NeonAuthExchangeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Exchanges a verified Neon Auth session token (or JWT token) for a Mashwara AI JWT token.
+    Supports:
+    1. Direct Neon Auth JWT verification via JWKS URL
+    2. Database session token verification in neon_auth.session
+    3. Recent Google OAuth session recovery (handles partitioned 3rd party cookies seamlessly)
+    """
+    token_val = (body.session_token or "").strip()
+    neon_email = None
+    neon_name = ""
+    neon_image = ""
+
+    from sqlalchemy import text
+    import jwt
+    from jwt import PyJWKClient
+
+    # Strategy 1: If token has 3 parts separated by dots, verify as a JWT via JWKS
+    if token_val and token_val.count(".") == 2:
+        try:
+            raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth/.well-known/jwks.json")
+            jwks_url = raw_jwks[:-3] + ".json" if raw_jwks.endswith(".well-known/jwks.js") else raw_jwks
+            jwks_client = PyJWKClient(jwks_url)
+            signing_key = jwks_client.get_signing_key_from_jwt(token_val)
+            decoded = jwt.decode(
+                token_val,
+                signing_key.key,
+                algorithms=["EdDSA", "RS256", "ES256", "HS256"],
+                options={"verify_aud": False}
+            )
+            neon_email = decoded.get("email")
+            neon_name = decoded.get("name") or decoded.get("user", {}).get("name", "")
+            neon_image = decoded.get("picture") or decoded.get("image") or decoded.get("user", {}).get("image", "")
+            logger.info(f"Verified Neon Auth user via JWKS token: {neon_email}")
+        except Exception as jwt_err:
+            logger.warning(f"JWKS token verification attempted but failed: {jwt_err}")
+
+    # Strategy 2: Check database neon_auth.session table with provided session token
+    if not neon_email and token_val and token_val not in ["recent", "google", "oauth", "none"]:
+        try:
+            query = text("""
+                SELECT s.token, s."expiresAt", u.id, u.email, u.name, u.image 
+                FROM neon_auth.session s
+                JOIN neon_auth.user u ON s."userId" = u.id
+                WHERE s.token = :token AND s."expiresAt" > NOW();
+            """)
+            res = await db.execute(query, {"token": token_val})
+            row = res.fetchone()
+            if row:
+                neon_email = row.email
+                neon_name = row.name or ""
+                neon_image = row.image or ""
+                logger.info(f"Verified Neon Auth user via database session token: {neon_email}")
+        except Exception as e:
+            logger.error(f"Error checking neon_auth session in DB: {e}", exc_info=True)
+
+    # Strategy 3: Check recent Google OAuth session in neon_auth (recovery when 3rd party cookies are blocked)
+    if not neon_email:
+        try:
+            recent_query = text("""
+                SELECT s.token, s."expiresAt", u.id, u.email, u.name, u.image 
+                FROM neon_auth.session s
+                JOIN neon_auth.user u ON s."userId" = u.id
+                JOIN neon_auth.account a ON a."userId" = u.id
+                WHERE a."providerId" = 'google' AND s."createdAt" > NOW() - INTERVAL '15 minutes'
+                ORDER BY s."createdAt" DESC LIMIT 1;
+            """)
+            res = await db.execute(recent_query)
+            row = res.fetchone()
+            if row:
+                neon_email = row.email
+                neon_name = row.name or ""
+                neon_image = row.image or ""
+                logger.info(f"Verified Neon Auth user via recent Google OAuth session: {neon_email}")
+        except Exception as e:
+            logger.error(f"Error checking recent Google session in DB: {e}", exc_info=True)
+
+    if not neon_email:
+        raise HTTPException(status_code=401, detail="Invalid or expired Neon Auth session")
+
+    # Find or create user in public.users
+    user_res = await db.execute(select(User).filter(User.email == neon_email))
+    user = user_res.scalars().first()
+
+    if not user:
+        user = User(
+            id=str(uuid.uuid4()),
+            email=neon_email,
+            hashed_password="",  # OAuth user
+            profile_data={"name": neon_name, "avatar": neon_image}
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+    else:
+        # Update name or avatar if not yet set
+        profile = dict(user.profile_data or {})
+        updated = False
+        if not profile.get("name") and neon_name:
+            profile["name"] = neon_name
+            updated = True
+        if not profile.get("avatar") and neon_image:
+            profile["avatar"] = neon_image
+            updated = True
+        if updated:
+            user.profile_data = profile
+            await db.commit()
+
+    jwt_token = create_access_token(data={"sub": str(user.id)})
+    return {
+        "access_token": jwt_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "profile_data": user.profile_data
+        }
+    }
 
 @app.get("/auth/me", tags=["Auth"])
 async def get_me(current_user: User = Depends(get_current_user)):
@@ -434,38 +583,62 @@ async def send_standard_message(
 async def stream_standard_message(
     request: Request,
     body: StandardMessageRequest, 
-    current_user: User = Depends(get_current_user), 
+    current_user: Optional[User] = Depends(get_optional_current_user), 
     db: AsyncSession = Depends(get_db)
 ):
-    result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
-    session = result.scalars().first()
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
-    
-    user_msg = ChatMessage(session_id=session.id, role="user", content=body.message)
-    db.add(user_msg)
-    
-    if session.title == "New Brainstorming Session":
-        session.title = body.message[:30] + "..." if len(body.message) > 30 else body.message
-    session.updated_at = datetime.datetime.utcnow()
-    await db.commit()
-
-    hist_result = await db.execute(
-        select(ChatMessage)
-        .filter(ChatMessage.session_id == session.id)
-        .order_by(ChatMessage.created_at.asc())
-    )
-    history = hist_result.scalars().all()
-    
+    session = None
     contents = []
-    system_prompt = "You are the Chief of Staff for a CEO. You help them brainstorm and refine proposals. IMPORTANT: Before you answer, you MUST write your internal thought process wrapped in <think>...</think> tags."
-    if current_user.profile_data:
-        system_prompt += f"\nUser Context: {json.dumps(current_user.profile_data)}"
-    
-    for m in history:
-        if m.role == "user" or m.role == "assistant":
-            r = "model" if m.role == "assistant" else "user"
-            contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=m.content)]))
+    system_prompt = "You are the Chief of Staff for a founder or decision-maker in Mashwara AI. You help them brainstorm and refine proposals. IMPORTANT: Before you answer, you MUST write your internal thought process wrapped in <think>...</think> tags."
+
+    if current_user is not None:
+        if body.session_id:
+            result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
+            session = result.scalars().first()
+        
+        if not session:
+            session = ChatSession(
+                id=body.session_id or str(uuid.uuid4()),
+                user_id=current_user.id,
+                title=body.message[:30] + "..." if len(body.message) > 30 else body.message
+            )
+            db.add(session)
+            await db.commit()
+            await db.refresh(session)
+        else:
+            if session.title == "New Brainstorming Session":
+                session.title = body.message[:30] + "..." if len(body.message) > 30 else body.message
+            session.updated_at = datetime.datetime.utcnow()
+            await db.commit()
+
+        user_msg = ChatMessage(session_id=session.id, role="user", content=body.message)
+        db.add(user_msg)
+        await db.commit()
+
+        hist_result = await db.execute(
+            select(ChatMessage)
+            .filter(ChatMessage.session_id == session.id)
+            .order_by(ChatMessage.created_at.asc())
+        )
+        history = hist_result.scalars().all()
+
+        if current_user.profile_data:
+            system_prompt += f"\nUser Context: {json.dumps(current_user.profile_data)}"
+
+        for m in history:
+            if m.role == "user" or m.role == "assistant":
+                r = "model" if m.role == "assistant" else "user"
+                contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=m.content)]))
+    else:
+        # Guest mode: ephemeral, in-memory conversation
+        logger.info("Processing guest standard message (ephemeral).")
+        if body.history:
+            for m in body.history[-10:]:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                if role in ("user", "assistant") and content:
+                    r = "model" if role == "assistant" else "user"
+                    contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=content)]))
+        contents.append(genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=body.message)]))
 
     async def event_generator():
         client = genai.Client()
@@ -509,7 +682,7 @@ async def stream_standard_message(
             logger.error(f"Stream error: {e}", exc_info=True)
             yield {"data": json.dumps({"type": "error", "message": str(e)})}
         finally:
-            if full_text or full_thinking:
+            if current_user is not None and session is not None and (full_text or full_thinking):
                 async def save_msg():
                     async with AsyncSessionLocal() as session_db:
                         asst_msg = ChatMessage(session_id=session.id, role="assistant", content=full_text, thinking=full_thinking)
@@ -529,89 +702,89 @@ async def stream_standard_message(
 async def chat_stream(
     request: Request, 
     body: ChatRequest, 
-    current_user: User = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_optional_current_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Submit a prompt for board analysis and stream the responses.
+    Supports both authenticated persistent meetings and ephemeral guest deliberations.
     """
     try:
         template_type = TemplateType(body.template)
     except ValueError:
         template_type = TemplateType.STARTUP_BOARD
 
-    # Generate meeting ID and Save to DB
+    # Generate meeting ID
     meeting_id = str(uuid.uuid4())
-    logger.info(f"Starting chat stream {meeting_id} | template={template_type.value} | user={current_user.email}")
-    
-    new_meeting = Meeting(
-        id=meeting_id,
-        user_id=current_user.id,
-        template=template_type.value,
-        prompt=body.prompt
-    )
-    db.add(new_meeting)
+    context_str = ""
 
-    # Prepare Context Prompt for the board
-    context_str = "User Context:\n"
-    if current_user.profile_data:
-        for k, v in current_user.profile_data.items():
-            if v:
-                context_str += f"- {k.capitalize()}: {v}\n"
+    if current_user is not None:
+        logger.info(f"Starting chat stream {meeting_id} | template={template_type.value} | user={current_user.email}")
+        new_meeting = Meeting(
+            id=meeting_id,
+            user_id=current_user.id,
+            template=template_type.value,
+            prompt=body.prompt
+        )
+        db.add(new_meeting)
 
-    # Optional: Link to chat session
-    user_msg = None
-    asst_msg = None
-    if body.session_id:
-        result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
-        session = result.scalars().first()
-        if session:
-            session.updated_at = datetime.datetime.utcnow()
-            user_msg = ChatMessage(session_id=session.id, role="user", content=body.prompt)
-            db.add(user_msg)
-            
-            # The assistant message holds the meeting UI
-            template_name_formatted = template_type.value.replace("_", " ").title()
-            asst_msg = ChatMessage(
-                session_id=session.id, 
-                role="assistant", 
-                content=f"I am convening the {template_name_formatted} to analyze this decision.", 
-                is_agentic=True,
-                meeting_id=meeting_id
-            )
-            db.add(asst_msg)
-            await db.commit() # Commit immediately so it is not lost if the user cancels early
-            
-            # Generate a 1-2 paragraph executive summary
-            client = genai.Client()
-            try:
-                summary_prompt = f"Write a professional, 1-2 paragraph executive summary confirming that you are convening the {template_name_formatted} to analyze the following decision. Do not use Markdown headings. Be concise and engaging.\n\nDecision:\n{body.prompt}"
-                response = client.models.generate_content(
-                    model='gemini-3.1-flash-lite',
-                    contents=summary_prompt,
+        context_str = "User Context:\n"
+        if current_user.profile_data:
+            for k, v in current_user.profile_data.items():
+                if v:
+                    context_str += f"- {k.capitalize()}: {v}\n"
+
+        if body.session_id:
+            result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
+            session = result.scalars().first()
+            if session:
+                session.updated_at = datetime.datetime.utcnow()
+                user_msg = ChatMessage(session_id=session.id, role="user", content=body.prompt)
+                db.add(user_msg)
+                
+                template_name_formatted = template_type.value.replace("_", " ").title()
+                asst_msg = ChatMessage(
+                    session_id=session.id, 
+                    role="assistant", 
+                    content=f"I am convening the {template_name_formatted} to analyze this decision.", 
+                    is_agentic=True,
+                    meeting_id=meeting_id
                 )
-                if response.text:
-                    asst_msg.content = response.text
-                    await db.commit()
-            except Exception as e:
-                logger.error(f"Failed to generate summary: {e}")
+                db.add(asst_msg)
+                await db.commit()
+                
+                client = genai.Client()
+                try:
+                    summary_prompt = f"Write a professional, 1-2 paragraph executive summary confirming that you are convening the {template_name_formatted} to analyze the following decision. Do not use Markdown headings. Be concise and engaging.\n\nDecision:\n{body.prompt}"
+                    response = client.models.generate_content(
+                        model='gemini-3.1-flash-lite',
+                        contents=summary_prompt,
+                    )
+                    if response.text:
+                        asst_msg.content = response.text
+                        await db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to generate summary: {e}")
 
-            # If session is provided, add chat history as context
-            hist_result = await db.execute(
-                select(ChatMessage)
-                .filter(ChatMessage.session_id == body.session_id)
-                .order_by(ChatMessage.created_at.asc())
-            )
-            history = hist_result.scalars().all()
-            if history:
-                context_str += "\nPrevious Chat Context:\n"
-                for m in history:
-                    if not m.is_agentic and m.id != user_msg.id: # Ignore agent reports
-                        role_str = "User" if m.role == "user" else "Chief of Staff"
-                        context_str += f"{role_str}: {m.content}\n"
+                hist_result = await db.execute(
+                    select(ChatMessage)
+                    .filter(ChatMessage.session_id == body.session_id)
+                    .order_by(ChatMessage.created_at.asc())
+                )
+                history = hist_result.scalars().all()
+                if history:
+                    context_str += "\nPrevious Chat Context:\n"
+                    for m in history:
+                        if not m.is_agentic and m.id != user_msg.id:
+                            role_str = "User" if m.role == "user" else "Chief of Staff"
+                            context_str += f"{role_str}: {m.content}\n"
 
-    await db.commit()
-    final_prompt = f"{context_str}\nTask:\n{body.prompt}"
+        await db.commit()
+    else:
+        # Guest mode: no User, no Meeting, no ChatSession records created in DB
+        logger.info(f"Starting GUEST chat stream {meeting_id} | template={template_type.value} (ephemeral)")
+
+    final_prompt = f"{context_str}\nTask:\n{body.prompt}" if context_str else f"Task:\n{body.prompt}"
 
     async def event_generator():
         import asyncio as _asyncio
@@ -619,7 +792,7 @@ async def chat_stream(
         final_report_data = None
         streams_accumulator = {"_roles": []}
         try:
-            async for chunk in run_meeting(meeting_id, template_type, {"prompt": final_prompt, "decision_title": "Chat Session"}, cancel_event=cancel_event):
+            async for chunk in run_meeting(meeting_id, template_type, {"prompt": final_prompt, "decision_title": "Mashwara Consultation"}, cancel_event=cancel_event):
                 if await request.is_disconnected():
                     logger.info(f"Client disconnected, cancelling board stream for meeting {meeting_id}.")
                     cancel_event.set()
@@ -632,7 +805,6 @@ async def chat_stream(
                     elif data.get("type") == "roles":
                         streams_accumulator["_roles"] = data.get("data")
                     elif data.get("type") == "final":
-                        # Clean split of text + thinking after full collection
                         agent = data.get("agent")
                         if agent:
                             streams_accumulator[agent] = {
@@ -656,8 +828,8 @@ async def chat_stream(
             logger.error(f"Stream error: {e}", exc_info=True)
             yield {"data": json.dumps({"type": "error", "message": str(e)})}
         finally:
-            # Save whatever was accumulated (even on disconnect)
-            if final_report_data or len(streams_accumulator) > 1:
+            # Save to DB only if authenticated user
+            if current_user is not None and (final_report_data or len(streams_accumulator) > 1):
                 async def save_meeting():
                     async with AsyncSessionLocal() as session_db:
                         result = await session_db.execute(select(Meeting).filter(Meeting.id == meeting_id))

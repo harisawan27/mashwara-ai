@@ -242,6 +242,29 @@ select {
   padding-right: 42px;
 }
 
+[dir="rtl"] select {
+  background-position: left 14px center;
+  padding-right: 16px;
+  padding-left: 42px;
+}
+
+/* -------------------------------------------------------------------------
+   Urdu Typography & RTL Enhancements
+   ------------------------------------------------------------------------- */
+html[lang="ur"], html.lang-ur, [dir="rtl"] {
+  font-family: 'Noto Sans Arabic', 'Noto Nastaliq Urdu', 'Urdu Typesetting', var(--font-sans);
+}
+
+html[lang="ur"] body, html.lang-ur body {
+  line-height: 1.75;
+  letter-spacing: 0;
+}
+
+html[lang="ur"] h1, html[lang="ur"] h2, html[lang="ur"] h3, html[lang="ur"] h4 {
+  line-height: 1.45;
+  letter-spacing: 0;
+}
+
 /* -------------------------------------------------------------------------
    Animation Delays
    ------------------------------------------------------------------------- */

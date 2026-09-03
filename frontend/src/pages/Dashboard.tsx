@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe } from "../api/client";
+import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe, exchangeNeonAuthSession, getNeonAuthConfig } from "../api/client";
 import type { RoleInfo } from "../api/client";
 import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
@@ -10,6 +10,7 @@ import TutorialModal from "../components/TutorialModal";
 import { useAuthStore } from "../store/authStore";
 import { useSessionStore } from "../store/sessionStore";
 import { TEMPLATES } from "../types/meeting";
+import { useTranslation } from "../i18n";
 
 interface Message {
   id: string;
@@ -31,11 +32,14 @@ interface ActiveMeetingData {
 
 export default function Dashboard() {
   const token = useAuthStore((state) => state.token);
+  const setToken = useAuthStore((state) => state.setToken);
   const setUser = useAuthStore((state) => state.setUser);
   const fetchSessions = useSessionStore((state) => state.fetchSessions);
   const addSession = useSessionStore((state) => state.addSession);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const { t, isRTL } = useTranslation();
   
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("STARTUP_BOARD");
@@ -65,6 +69,62 @@ export default function Dashboard() {
   const [activeMeetingData, setActiveMeetingData] = useState<ActiveMeetingData | null>(null);
 
   const endOfChatRef = useRef<HTMLDivElement>(null);
+
+  // Handle OAuth return from Neon Auth Google sign-in
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("neon_auth")) {
+      const handleNeonOAuthReturn = async () => {
+        try {
+          let neonAuthUrl = import.meta.env.VITE_NEON_AUTH_URL;
+          if (!neonAuthUrl) {
+            try {
+              const cfg = await getNeonAuthConfig();
+              neonAuthUrl = cfg.neon_auth_url;
+            } catch {
+              neonAuthUrl = "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth";
+            }
+          }
+
+          // 1. Extract any token directly from URL search or hash
+          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+          let foundToken = params.get("session_token") || params.get("token") || hashParams.get("token") || hashParams.get("access_token") || undefined;
+
+          // 2. Query Neon Auth session if not in URL parameters
+          if (!foundToken) {
+            try {
+              const sessionRes = await fetch(`${neonAuthUrl}/get-session`, {
+                credentials: "include",
+              });
+              if (sessionRes.ok) {
+                const sessionData = await sessionRes.json();
+                foundToken = sessionData?.session?.token || sessionData?.token;
+              }
+            } catch (err) {
+              console.warn("Could not retrieve session from Neon Auth directly:", err);
+            }
+          }
+
+          // 3. Exchange verified session or recover recent Google login with backend
+          const res = await exchangeNeonAuthSession(foundToken || "recent");
+          if (res && res.access_token) {
+            setToken(res.access_token);
+            if (res.user) setUser(res.user);
+            fetchSessions();
+          }
+        } catch (err) {
+          console.error("Neon Auth exchange error:", err);
+        } finally {
+          const url = new URL(window.location.href);
+          url.searchParams.delete("neon_auth");
+          url.searchParams.delete("token");
+          url.searchParams.delete("session_token");
+          window.history.replaceState({}, document.title, url.pathname);
+        }
+      };
+      handleNeonOAuthReturn();
+    }
+  }, [setToken, setUser, fetchSessions]);
 
   useEffect(() => {
     if (token) {
@@ -130,7 +190,7 @@ export default function Dashboard() {
 
     try {
       let sessionId = activeSessionId;
-      if (!sessionId) {
+      if (token && !sessionId) {
         const newSession = await createSession();
         sessionId = newSession.id;
         setActiveSessionId(sessionId);
@@ -143,10 +203,15 @@ export default function Dashboard() {
       setMessages(prev => [...prev, { id: tempUserId, role: "user", content: userText }]);
       setMessages(prev => [...prev, { id: tempAsstId, role: "assistant", content: "", thinking: "" }]);
 
+      const recentHistory = messages.slice(-8).map(m => ({
+        role: m.role,
+        content: m.content || ""
+      }));
+
       abortControllerRef.current = new AbortController();
 
       await streamStandardMessage(
-        sessionId as string,
+        token ? (sessionId as string) : null,
         userText,
         (text) => {
           setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, thinking: (m.thinking || "") + text } : m));
@@ -161,7 +226,8 @@ export default function Dashboard() {
         () => {
           setIsProcessing(false);
         },
-        abortControllerRef.current.signal
+        abortControllerRef.current.signal,
+        recentHistory
       );
     } catch (err) {
       console.error(err);
@@ -170,12 +236,14 @@ export default function Dashboard() {
   };
 
   const handleUpdatePrompt = async () => {
-    if (!editInput.trim() || !activeSessionId || isProcessing) return;
+    if (!editInput.trim() || isProcessing) return;
     setIsProcessing(true);
     setEditingMessageId(null);
     
     try {
-      await deleteLastTurn(activeSessionId);
+      if (token && activeSessionId) {
+        await deleteLastTurn(activeSessionId);
+      }
       
       const userText = editInput.trim();
       setMessages(prev => prev.slice(0, -2)); 
@@ -186,10 +254,15 @@ export default function Dashboard() {
       setMessages(prev => [...prev, { id: tempUserId, role: "user", content: userText }]);
       setMessages(prev => [...prev, { id: tempAsstId, role: "assistant", content: "", thinking: "" }]);
 
+      const recentHistory = messages.slice(0, -2).slice(-8).map(m => ({
+        role: m.role,
+        content: m.content || ""
+      }));
+
       abortControllerRef.current = new AbortController();
 
       await streamStandardMessage(
-        activeSessionId,
+        token ? (activeSessionId as string) : null,
         userText,
         (text) => {
           setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, thinking: (m.thinking || "") + text } : m));
@@ -204,7 +277,8 @@ export default function Dashboard() {
         () => {
           setIsProcessing(false);
         },
-        abortControllerRef.current.signal
+        abortControllerRef.current.signal,
+        recentHistory
       );
     } catch (err) {
       console.error(err);
@@ -221,7 +295,7 @@ export default function Dashboard() {
 
     try {
       let sessionId = activeSessionId;
-      if (!sessionId) {
+      if (token && !sessionId) {
         const newSession = await createSession();
         sessionId = newSession.id;
         setActiveSessionId(sessionId);
@@ -232,12 +306,12 @@ export default function Dashboard() {
       const tempAsstId = (Date.now() + 1).toString();
       setMessages(prev => [...prev, 
         { id: tempUserId, role: "user", content: userText },
-        { id: tempAsstId, role: "assistant", content: "I am convening the board to analyze your request. Please wait while they deliberate.", is_agentic: true }
+        { id: tempAsstId, role: "assistant", content: t.chat.conveneNotice, is_agentic: true }
       ]);
 
       const newMeetingData: ActiveMeetingData = {
         template: selectedTemplate,
-        decisionTitle: "Live Board Meeting",
+        decisionTitle: t.canvas.liveDeliberation,
         streams: {},
       };
       
@@ -246,7 +320,7 @@ export default function Dashboard() {
       abortControllerRef.current = new AbortController();
 
       await streamChat(
-        sessionId as string,
+        token ? (sessionId as string) : null,
         selectedTemplate,
         userText,
         (roles) => {
@@ -347,8 +421,6 @@ export default function Dashboard() {
     }
   };
 
-  if (!token) return <AuthModal />;
-
   return (
     <div className="h-[100dvh] flex relative overflow-hidden bg-slate-50 dark:bg-[#06080f] transition-colors">
       <div className="fixed inset-0 pointer-events-none z-0">
@@ -362,6 +434,7 @@ export default function Dashboard() {
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
         onOpenTutorial={() => setIsTutorialOpen(true)}
+        onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
       <div className="flex-1 flex flex-col relative z-10 h-screen w-full md:w-auto">
@@ -374,11 +447,11 @@ export default function Dashboard() {
             )}
             <div className="flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-md bg-white shadow-sm ring-1 ring-slate-900/5 flex items-center justify-center p-1">
-                <img src="/boardroom-ai.svg" alt="Boardroom AI Logo" className="w-full h-full object-contain" />
+                <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
               </div>
               <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 hidden sm:block"></div>
               <span className="text-lg font-extrabold tracking-tight">
-                <span className="text-[#0F172A] dark:text-white">Boardroom</span><span className="text-[#2563EB]">AI</span>
+                <span className="text-[#0F172A] dark:text-white">{t.brand.firstPart}</span><span className="text-[#2563EB]">{t.brand.secondPart}</span>
               </span>
             </div>
           </div>
@@ -386,14 +459,41 @@ export default function Dashboard() {
 
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar relative">
           <div className="max-w-3xl mx-auto space-y-6 pb-40">
+            {/* Guest Banner */}
+            {!token && (
+              <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/[0.08] dark:bg-amber-500/[0.06] border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-up shadow-sm">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  </div>
+                  <div className="text-start">
+                    <p className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
+                      {t.guest.bannerNotice}
+                    </p>
+                    <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                      {t.guest.bannerSecondary}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsAuthModalOpen(true)}
+                  className="self-start sm:self-center shrink-0 py-2 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white text-xs font-semibold shadow-sm transition-all cursor-pointer"
+                >
+                  {t.guest.signInCta}
+                </button>
+              </div>
+            )}
             {messages.length === 0 && (
               <div className="text-center mt-20 animate-fade-in px-4">
                 <div className="inline-flex w-16 h-16 rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/5 items-center justify-center mb-6 p-3">
-                  <img src="/boardroom-ai.svg" alt="Boardroom AI Logo" className="w-full h-full object-contain drop-shadow-sm" />
+                  <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain drop-shadow-sm" />
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Welcome to your Workspace</h2>
-                <p className="text-slate-600 dark:text-slate-400 mb-8 max-w-md mx-auto text-sm sm:text-base">
-                  Brainstorm with your Chief of Staff, and when you're ready, convene the full executive board to analyze your decision.
+                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{t.emptyState.title}</h2>
+                <p className="text-slate-600 dark:text-slate-400 mb-8 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                  {t.emptyState.description}
                 </p>
 
                 {!hasSeenTutorial && (
@@ -407,12 +507,12 @@ export default function Dashboard() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
-                    Watch the 1-Minute Tutorial
+                    {t.emptyState.tutorialButton}
                   </button>
                 )}
 
                 <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
-                  {["Should we raise a Series A now?", "Fire underperforming contractor?", "Pivot target audience to Enterprise?"].map((q, i) => (
+                  {t.emptyState.suggestedPrompts.map((q, i) => (
                     <button key={i} onClick={() => setInput(q)} className="px-4 py-2 rounded-full border border-slate-200 dark:border-white/10 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-blue-500/50 hover:bg-blue-500/10 transition-all shadow-sm dark:shadow-none bg-white dark:bg-transparent">
                       "{q}"
                     </button>
@@ -439,10 +539,10 @@ export default function Dashboard() {
                         />
                         <div className="flex justify-end gap-2 mt-2">
                           <button onClick={() => setEditingMessageId(null)} className="px-4 py-1.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
-                            Cancel
+                            {t.common.cancel}
                           </button>
                           <button onClick={handleUpdatePrompt} className="px-4 py-1.5 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white transition-colors">
-                            Update
+                            {t.common.update}
                           </button>
                         </div>
                       </div>
@@ -453,11 +553,11 @@ export default function Dashboard() {
                         </div>
                         <div className="flex items-center gap-1 mt-1 mr-1 text-slate-400">
                           {isLastUserMessage && (
-                            <button onClick={() => { setEditingMessageId(msg.id); setEditInput(msg.content); }} className="p-1.5 hover:text-blue-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Edit Prompt">
+                            <button onClick={() => { setEditingMessageId(msg.id); setEditInput(msg.content); }} className="p-1.5 hover:text-blue-500 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={t.chat.editPrompt}>
                               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
                             </button>
                           )}
-                          <button onClick={() => handleCopy(msg.content, msg.id)} className="p-1.5 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Copy Prompt">
+                          <button onClick={() => handleCopy(msg.content, msg.id)} className="p-1.5 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={t.chat.copyPrompt}>
                             {copiedId === msg.id ? <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>}
                           </button>
                         </div>
@@ -501,9 +601,9 @@ export default function Dashboard() {
                                 <svg className={`w-3.5 h-3.5 transition-transform ${thinkingExpandedId === msg.id ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 {isProcessing && index === messages.length - 1 ? (
                                   <span className="flex items-center gap-1">
-                                    Thinking<span className="animate-pulse">...</span>
+                                    {t.chat.thinkingStatus}
                                   </span>
-                                ) : "Thought Process"}
+                                ) : t.chat.thoughtProcess}
                               </button>
                               {thinkingExpandedId === msg.id && (
                                 <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
@@ -520,11 +620,11 @@ export default function Dashboard() {
                           {!text && !thinking && isProcessing && index === messages.length - 1 && !msg.is_agentic && (
                             <div className="flex items-center gap-2 text-slate-400 dark:text-slate-500 text-sm font-medium italic mt-2 ml-1">
                               <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                              Chief of Staff is typing...
+                              {t.chat.chiefOfStaffTyping}
                             </div>
                           )}
                           <div className="flex items-center gap-1 mt-1 ml-1 text-slate-400">
-                            <button onClick={() => handleCopy(text, msg.id)} className="p-1.5 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Copy Text">
+                            <button onClick={() => handleCopy(text, msg.id)} className="p-1.5 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title={t.chat.copyText}>
                               {copiedId === msg.id ? <svg className="w-4 h-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>}
                             </button>
                           </div>
@@ -562,7 +662,7 @@ export default function Dashboard() {
                           ) : (
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                           )}
-                          {isProcessing && index === messages.length - 1 ? "Board is deliberating..." : "Open Board Report"}
+                          {isProcessing && index === messages.length - 1 ? t.chat.deliberating : t.chat.openReport}
                         </button>
                       )}
                     </div>
@@ -586,7 +686,7 @@ export default function Dashboard() {
                 onKeyDown={() => {
                   // Let default behavior (newline) happen for Enter, including Shift+Enter
                 }}
-                placeholder="Message Chief of Staff or convene the board..."
+                placeholder={t.chat.inputPlaceholder}
                 className="w-full bg-transparent border-none py-3.5 sm:py-4 px-4 sm:px-5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:ring-0 resize-none max-h-48 custom-scrollbar text-sm sm:text-base outline-none"
                 rows={Math.min(input.split("\n").length, 5) || 1}
                 style={{ minHeight: '56px' }}
@@ -600,7 +700,7 @@ export default function Dashboard() {
                       onClick={() => setIsDropdownOpen(!isDropdownOpen)}
                       className="flex items-center gap-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                     >
-                      {TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
+                      {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
                       <svg className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
@@ -609,7 +709,7 @@ export default function Dashboard() {
                     {isDropdownOpen && (
                       <>
                         <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)} />
-                        <div className="absolute bottom-full left-0 mb-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in">
+                        <div className={`absolute bottom-full ${isRTL ? "right-0" : "left-0"} mb-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in`}>
                           {Object.keys(TEMPLATES).map((key) => (
                             <button
                               key={key}
@@ -617,10 +717,10 @@ export default function Dashboard() {
                                 setSelectedTemplate(key);
                                 setIsDropdownOpen(false);
                               }}
-                              className={`w-full text-left px-4 py-3 text-sm transition-colors ${selectedTemplate === key ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                              className={`w-full text-start px-4 py-3 text-sm transition-colors ${selectedTemplate === key ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
                             >
-                              <div className="font-medium">{TEMPLATES[key as keyof typeof TEMPLATES].name}</div>
-                              <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{TEMPLATES[key as keyof typeof TEMPLATES].description}</div>
+                              <div className="font-medium">{t.templates[key]?.name || TEMPLATES[key as keyof typeof TEMPLATES].name}</div>
+                              <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{t.templates[key]?.description || TEMPLATES[key as keyof typeof TEMPLATES].description}</div>
                             </button>
                           ))}
                         </div>
@@ -636,7 +736,7 @@ export default function Dashboard() {
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                     </svg>
-                    Convene
+                    {t.chat.conveneToggle}
                   </button>
                 </div>
 
@@ -657,7 +757,7 @@ export default function Dashboard() {
                         setIsProcessing(false);
                       }}
                       className="w-8 h-8 rounded-full flex items-center justify-center bg-red-100 hover:bg-red-200 dark:bg-red-500/20 dark:hover:bg-red-500/30 text-red-600 dark:text-red-400 transition-colors shadow-sm"
-                      title="Stop Generation"
+                      title={t.chat.stopTooltip}
                     >
                       <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                         <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
@@ -674,9 +774,9 @@ export default function Dashboard() {
                           ? 'bg-gradient-to-r from-blue-600 to-blue-800 text-white hover:scale-105 shadow-blue-500/20'
                           : 'bg-blue-500 text-white hover:scale-105 hover:bg-blue-600'
                       }`}
-                      title="Send Message"
+                      title={t.chat.sendTooltip}
                     >
-                      <svg className="w-4 h-4 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg className={`w-4 h-4 ${isRTL ? "-scale-x-100" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
                       </svg>
                     </button>
@@ -701,6 +801,16 @@ export default function Dashboard() {
           />
         )}
         <TutorialModal isOpen={isTutorialOpen} onClose={handleCloseTutorial} />
+        
+        {/* Auth Modal triggered on-demand for guests */}
+        <AuthModal
+          isOpen={isAuthModalOpen}
+          onClose={() => setIsAuthModalOpen(false)}
+          onSuccess={() => {
+            setIsAuthModalOpen(false);
+            fetchSessions();
+          }}
+        />
       </div>
     </div>
   );

@@ -5,6 +5,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { useTranslation } from "../i18n";
 
 interface ReportBannerProps {
   decision: "APPROVE" | "REJECT" | "DEFER";
@@ -13,45 +14,46 @@ interface ReportBannerProps {
   templateName: string;
 }
 
-/** Decision color schemes */
-const decisionStyles = {
-  APPROVE: {
-    bg: "from-emerald-500/10 to-emerald-900/10 dark:from-emerald-500/20 dark:to-emerald-900/20",
-    border: "border-emerald-500/30",
-    text: "text-emerald-700 dark:text-emerald-400",
-    glow: "shadow-[0_0_60px_rgba(16,185,129,0.1)] dark:shadow-[0_0_60px_rgba(16,185,129,0.15)]",
-    ring: "stroke-emerald-500",
-    label: "APPROVED",
-    icon: "✓",
-  },
-  REJECT: {
-    bg: "from-red-500/10 to-red-900/10 dark:from-red-500/20 dark:to-red-900/20",
-    border: "border-red-500/30",
-    text: "text-red-700 dark:text-red-400",
-    glow: "shadow-[0_0_60px_rgba(239,68,68,0.1)] dark:shadow-[0_0_60px_rgba(239,68,68,0.15)]",
-    ring: "stroke-red-500",
-    label: "REJECTED",
-    icon: "✗",
-  },
-  DEFER: {
-    bg: "from-amber-500/10 to-amber-900/10 dark:from-amber-500/20 dark:to-amber-900/20",
-    border: "border-amber-500/30",
-    text: "text-amber-700 dark:text-amber-400",
-    glow: "shadow-[0_0_60px_rgba(245,158,11,0.1)] dark:shadow-[0_0_60px_rgba(245,158,11,0.15)]",
-    ring: "stroke-amber-500",
-    label: "DEFERRED",
-    icon: "⏸",
-  },
-};
-
 export default function ReportBanner({
   decision,
   confidence,
   decisionTitle,
   templateName,
 }: ReportBannerProps) {
-  const style = decisionStyles[decision];
+  const { t } = useTranslation();
   const [animatedConfidence, setAnimatedConfidence] = useState(0);
+
+  const decisionStyles = {
+    APPROVE: {
+      bg: "from-emerald-500/10 to-emerald-900/10 dark:from-emerald-500/20 dark:to-emerald-900/20",
+      border: "border-emerald-500/30",
+      text: "text-emerald-700 dark:text-emerald-400",
+      glow: "shadow-[0_0_60px_rgba(16,185,129,0.1)] dark:shadow-[0_0_60px_rgba(16,185,129,0.15)]",
+      ring: "stroke-emerald-500",
+      label: t.votes.approve,
+      icon: "✓",
+    },
+    REJECT: {
+      bg: "from-red-500/10 to-red-900/10 dark:from-red-500/20 dark:to-red-900/20",
+      border: "border-red-500/30",
+      text: "text-red-700 dark:text-red-400",
+      glow: "shadow-[0_0_60px_rgba(239,68,68,0.1)] dark:shadow-[0_0_60px_rgba(239,68,68,0.15)]",
+      ring: "stroke-red-500",
+      label: t.votes.reject,
+      icon: "✗",
+    },
+    DEFER: {
+      bg: "from-amber-500/10 to-amber-900/10 dark:from-amber-500/20 dark:to-amber-900/20",
+      border: "border-amber-500/30",
+      text: "text-amber-700 dark:text-amber-400",
+      glow: "shadow-[0_0_60px_rgba(245,158,11,0.1)] dark:shadow-[0_0_60px_rgba(245,158,11,0.15)]",
+      ring: "stroke-amber-500",
+      label: t.votes.defer,
+      icon: "⏸",
+    },
+  };
+
+  const style = decisionStyles[decision] || decisionStyles.DEFER;
 
   // Animate confidence counter
   useEffect(() => {
@@ -120,15 +122,15 @@ export default function ReportBanner({
               {animatedConfidence}%
             </span>
             <span className="text-[10px] text-slate-500 uppercase tracking-wider">
-              Confidence
+              {t.canvas.confidence}
             </span>
           </div>
         </div>
 
         {/* Decision text */}
-        <div className="text-center md:text-left flex-1">
+        <div className="text-center md:text-start flex-1">
           <p className="text-xs text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1">
-            {templateName} • Board Decision
+            {templateName} • {t.canvas.boardDecision}
           </p>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-900 dark:text-white mb-3">
             {decisionTitle}

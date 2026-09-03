@@ -7,6 +7,7 @@ import { useState } from "react";
 import AgentStream from "./AgentStream";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useTranslation } from "../i18n";
 
 interface AgentStreamState {
   status: "idle" | "thinking" | "done" | "waiting";
@@ -25,18 +26,36 @@ interface MeetingCanvasProps {
   rolesInfo?: any[];
 }
 
-// ─── Decision colour tokens ───────────────────────────────────────────────────
-const DECISION = {
-  YES:     { label: "APPROVED",  icon: "✓", pill: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30", bar: "bg-emerald-500", glow: "shadow-emerald-500/20", ring: "stroke-emerald-500" },
-  APPROVE: { label: "APPROVED",  icon: "✓", pill: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30", bar: "bg-emerald-500", glow: "shadow-emerald-500/20", ring: "stroke-emerald-500" },
-  NO:      { label: "REJECTED",  icon: "✗", pill: "bg-red-500/15     text-red-600     dark:text-red-400     ring-red-500/30",     bar: "bg-red-500",     glow: "shadow-red-500/20",     ring: "stroke-red-500"     },
-  REJECT:  { label: "REJECTED",  icon: "✗", pill: "bg-red-500/15     text-red-600     dark:text-red-400     ring-red-500/30",     bar: "bg-red-500",     glow: "shadow-red-500/20",     ring: "stroke-red-500"     },
-  DEFER:   { label: "DEFERRED",  icon: "⏸", pill: "bg-amber-500/15   text-amber-600   dark:text-amber-400   ring-amber-500/30",   bar: "bg-amber-500",   glow: "shadow-amber-500/20",   ring: "stroke-amber-500"   },
-} as const;
-
-function token(key?: string) {
-  if (!key) return DECISION.DEFER;
-  return (DECISION as any)[key.toUpperCase()] ?? DECISION.DEFER;
+function token(key: string | undefined, t: any) {
+  const k = (key || "").toUpperCase();
+  if (k === "YES" || k === "APPROVE") {
+    return {
+      label: t.votes.approve,
+      icon: "✓",
+      pill: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30",
+      bar: "bg-emerald-500",
+      glow: "shadow-emerald-500/20",
+      ring: "stroke-emerald-500"
+    };
+  }
+  if (k === "NO" || k === "REJECT") {
+    return {
+      label: t.votes.reject,
+      icon: "✗",
+      pill: "bg-red-500/15 text-red-600 dark:text-red-400 ring-red-500/30",
+      bar: "bg-red-500",
+      glow: "shadow-red-500/20",
+      ring: "stroke-red-500"
+    };
+  }
+  return {
+    label: t.votes.defer,
+    icon: "⏸",
+    pill: "bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-amber-500/30",
+    bar: "bg-amber-500",
+    glow: "shadow-amber-500/20",
+    ring: "stroke-amber-500"
+  };
 }
 
 // ─── Animated confidence ring ─────────────────────────────────────────────────
@@ -54,7 +73,7 @@ function ConfidenceRing({ value, colorClass }: { value: number; colorClass: stri
 }
 
 // ─── Vote tally bar ───────────────────────────────────────────────────────────
-function VoteTally({ votes }: { votes: Record<string, { vote: string; confidence: number }> }) {
+function VoteTally({ votes, t }: { votes: Record<string, { vote: string; confidence: number }>; t: any }) {
   const counts = { YES: 0, NO: 0, DEFER: 0 };
   Object.values(votes || {}).forEach(v => {
     const k = (v.vote || "").toUpperCase();
@@ -67,11 +86,11 @@ function VoteTally({ votes }: { votes: Record<string, { vote: string; confidence
 
   return (
     <div className="space-y-2">
-      {([["YES", counts.YES, "bg-emerald-500", "text-emerald-600 dark:text-emerald-400"],
-         ["NO",  counts.NO,  "bg-red-500",     "text-red-600 dark:text-red-400"],
-         ["DEFER", counts.DEFER, "bg-amber-500", "text-amber-600 dark:text-amber-400"]] as const).map(([label, n, barCls, txtCls]) => (
+      {([[t.votes.approve, counts.YES, "bg-emerald-500", "text-emerald-600 dark:text-emerald-400"],
+         [t.votes.reject,  counts.NO,  "bg-red-500",     "text-red-600 dark:text-red-400"],
+         [t.votes.defer, counts.DEFER, "bg-amber-500", "text-amber-600 dark:text-amber-400"]] as const).map(([label, n, barCls, txtCls]) => (
         <div key={label} className="flex items-center gap-3">
-          <span className={`text-[10px] font-bold w-10 ${txtCls}`}>{label}</span>
+          <span className={`text-[10px] font-bold w-16 truncate ${txtCls}`}>{label}</span>
           <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
             <div className={`h-full rounded-full transition-all duration-700 ${barCls}`} style={{ width: `${pct(n)}%` }} />
           </div>
@@ -85,26 +104,25 @@ function VoteTally({ votes }: { votes: Record<string, { vote: string; confidence
 // ─── Main Component ────────────────────────────────────────────────────────────
 export default function MeetingCanvas({
   isOpen, onClose, report, streams, isProcessing,
-  template, decisionTitle = "Board Meeting", rolesInfo,
+  template, decisionTitle, rolesInfo,
 }: MeetingCanvasProps) {
   const [tab, setTab] = useState<"report" | "deliberation">("deliberation");
+  const { t } = useTranslation();
 
   if (!isOpen) return null;
+
+  const defaultTitle = t.canvas.boardMeeting;
+  const displayDecisionTitle = decisionTitle || defaultTitle;
 
   const roles = rolesInfo?.filter((r: any) => r.key !== "Moderator") || [];
   const moderator = rolesInfo?.find((r: any) => r.key === "Moderator");
   const activeStreams = streams ? Object.keys(streams).filter(k => k !== "_roles" && streams[k]?.status !== "idle") : [];
   const doneCount = activeStreams.filter(k => streams![k]?.status === "done").length;
   const totalAgents = roles.length;
-  const decStyle = token(report?.final_decision);
+  const decStyle = token(report?.final_decision, t);
   const hasReport = !!report;
 
-  // Auto-switch to report tab when report arrives
-  if (hasReport && tab === "deliberation" && doneCount === totalAgents && totalAgents > 0) {
-    // use a timeout trick to avoid render-during-render
-  }
-
-  const templateLabel = template.replace(/_BOARD$/, "").replace(/_/g, " ");
+  const templateLabel = t.templates[template]?.name || template.replace(/_BOARD$/, "").replace(/_/g, " ");
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
@@ -118,11 +136,11 @@ export default function MeetingCanvas({
         <div className="flex-shrink-0 px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-1.5 flex-shrink-0">
-              <img src="/boardroom-ai.svg" alt="Logo" className="w-full h-full object-contain" />
+              <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">{decisionTitle}</h2>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest">{templateLabel} Board</p>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">{displayDecisionTitle}</h2>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest">{templateLabel}</p>
             </div>
           </div>
 
@@ -131,14 +149,15 @@ export default function MeetingCanvas({
             {isProcessing ? (
               <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-full ring-1 ring-blue-500/20">
                 <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
-                {doneCount}/{totalAgents} complete
+                {doneCount}/{totalAgents} {t.canvas.complete}
               </span>
             ) : hasReport ? (
               <span className={`hidden sm:flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ring-1 ${decStyle.pill}`}>
                 {decStyle.icon} {decStyle.label}
               </span>
             ) : null}
-            <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors">
+
+            <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors" aria-label={t.common.close}>
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
@@ -146,20 +165,20 @@ export default function MeetingCanvas({
 
         {/* ── Tabs ── */}
         <div className="flex-shrink-0 px-4 sm:px-6 flex gap-1 border-b border-slate-200 dark:border-white/[0.06] bg-white/50 dark:bg-transparent">
-          {(["deliberation", "report"] as const).map(t => (
+          {(["deliberation", "report"] as const).map(tTab => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              disabled={t === "report" && !hasReport}
+              key={tTab}
+              onClick={() => setTab(tTab)}
+              disabled={tTab === "report" && !hasReport}
               className={`relative py-3 px-3 text-xs font-semibold tracking-wide transition-colors capitalize
-                ${tab === t
+                ${tab === tTab
                   ? "text-blue-600 dark:text-blue-400"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
                 }`}
             >
-              {t === "deliberation" ? "Live Deliberation" : "Board Report"}
-              {tab === t && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-t-full" />}
-              {t === "report" && !hasReport && isProcessing && (
+              {tTab === "deliberation" ? t.canvas.liveDeliberation : t.canvas.boardReport}
+              {tab === tTab && <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-t-full" />}
+              {tTab === "report" && !hasReport && isProcessing && (
                 <span className="ml-1.5 inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse align-middle" />
               )}
             </button>
@@ -178,8 +197,8 @@ export default function MeetingCanvas({
                 <div className="flex flex-col items-center justify-center gap-4 mt-16 text-center">
                   <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-2xl animate-pulse">🏛️</div>
                   <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">Calling the board to order</p>
-                    <p className="text-xs text-slate-500 mt-1">Agents are loading their briefings…</p>
+                    <p className="text-sm font-semibold text-slate-900 dark:text-white">{t.canvas.callingToOrder}</p>
+                    <p className="text-xs text-slate-500 mt-1">{t.canvas.agentsBriefing}</p>
                   </div>
                 </div>
               )}
@@ -187,13 +206,13 @@ export default function MeetingCanvas({
               {/* Progress bar */}
               {totalAgents > 0 && (
                 <div className="flex items-center gap-3 py-2">
-                  <span className="text-[11px] text-slate-500 whitespace-nowrap">{doneCount}/{totalAgents} agents</span>
+                  <span className="text-[11px] text-slate-500 whitespace-nowrap">{doneCount}/{totalAgents} {t.canvas.agentsComplete}</span>
                   <div className="flex-1 h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                     <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${totalAgents ? (doneCount / totalAgents) * 100 : 0}%` }} />
                   </div>
                   {isProcessing
-                    ? <span className="text-[11px] text-blue-500 font-medium whitespace-nowrap">In progress</span>
-                    : doneCount > 0 && <span className="text-[11px] text-emerald-500 font-medium whitespace-nowrap">Complete</span>}
+                    ? <span className="text-[11px] text-blue-500 font-medium whitespace-nowrap">{t.canvas.inProgress}</span>
+                    : doneCount > 0 && <span className="text-[11px] text-emerald-500 font-medium whitespace-nowrap">{t.canvas.complete}</span>}
                 </div>
               )}
 
@@ -239,8 +258,8 @@ export default function MeetingCanvas({
                   className="mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
                 >
                   <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">Board report is ready — view now</span>
-                  <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{t.canvas.viewReportReady}</span>
+                  <svg className="w-3.5 h-3.5 text-blue-500 rtl:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
                 </div>
               )}
             </div>
@@ -258,13 +277,13 @@ export default function MeetingCanvas({
                     <ConfidenceRing value={report.confidence_score ?? 0} colorClass={decStyle.ring} />
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                       <span className={`text-2xl font-extrabold ${decStyle.pill.split(" ")[1]}`}>{report.confidence_score}%</span>
-                      <span className="text-[9px] text-slate-500 uppercase tracking-wider">Confidence</span>
+                      <span className="text-[9px] text-slate-500 uppercase tracking-wider">{t.canvas.confidence}</span>
                     </div>
                   </div>
                   {/* Text info */}
-                  <div className="flex-1 text-center sm:text-left">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">{templateLabel} • Board Decision</p>
-                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mb-3 leading-snug">{report.decision_title || decisionTitle}</h1>
+                  <div className="flex-1 text-center sm:text-start">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">{templateLabel} • {t.canvas.boardDecision}</p>
+                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mb-3 leading-snug">{report.decision_title || displayDecisionTitle}</h1>
                     <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ring-1 ${decStyle.pill}`}>
                       <span>{decStyle.icon}</span>{decStyle.label}
                     </span>
@@ -274,20 +293,20 @@ export default function MeetingCanvas({
                 {/* Vote tally */}
                 {report.board_votes && Object.keys(report.board_votes).length > 0 && (
                   <div className="mt-6 pt-5 border-t border-slate-200 dark:border-white/[0.06]">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-semibold">Board Votes</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-semibold">{t.canvas.boardVotes}</p>
                     <div className="flex flex-wrap gap-2 mb-4">
                       {Object.entries(report.board_votes).map(([agent, v]: any) => {
-                        const t = token(v.vote);
+                        const vt = token(v.vote, t);
                         return (
-                          <div key={agent} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${t.pill} text-[11px] font-semibold`}>
-                            <span>{t.icon}</span>
-                            <span className="text-slate-700 dark:text-slate-300">{agent}</span>
+                          <div key={agent} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${vt.pill} text-[11px] font-semibold`}>
+                            <span>{vt.icon}</span>
+                            <span className="text-slate-700 dark:text-slate-300">{t.agents[agent]?.title || agent}</span>
                             <span className="text-slate-400 font-normal">{v.confidence}%</span>
                           </div>
                         );
                       })}
                     </div>
-                    <VoteTally votes={report.board_votes} />
+                    <VoteTally votes={report.board_votes} t={t} />
                   </div>
                 )}
               </div>
@@ -295,8 +314,8 @@ export default function MeetingCanvas({
               {/* Consensus summary */}
               {report.debate_summary && (
                 <div className="rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.06] p-4 sm:p-5">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-3">Board Consensus</p>
-                  <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 leading-relaxed border-l-2 border-blue-400/40 pl-4">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-3">{t.canvas.consensusSummary}</p>
+                  <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 leading-relaxed border-l-2 rtl:border-l-0 rtl:border-r-2 border-blue-400/40 pl-4 rtl:pl-0 rtl:pr-4">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.debate_summary}</ReactMarkdown>
                   </div>
                 </div>
@@ -311,7 +330,7 @@ export default function MeetingCanvas({
                       <div className="w-5 h-5 rounded-md bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
                         <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                       </div>
-                      <p className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-widest font-bold">Key Risks</p>
+                      <p className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-widest font-bold">{t.canvas.keyRisks}</p>
                     </div>
                     <ul className="space-y-2">
                       {report.key_risks.map((risk: string, i: number) => (
@@ -331,7 +350,7 @@ export default function MeetingCanvas({
                       <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
                         <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                       </div>
-                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-widest font-bold">Recommended Actions</p>
+                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-widest font-bold">{t.canvas.recommendedActions}</p>
                     </div>
                     <ol className="space-y-2">
                       {report.recommended_actions.map((action: string, i: number) => (
@@ -348,12 +367,12 @@ export default function MeetingCanvas({
               {/* Agent mini-votes */}
               {roles.length > 0 && streams && (
                 <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] overflow-hidden">
-                  <p className="px-4 sm:px-5 py-3 text-[10px] text-slate-500 uppercase tracking-widest font-bold border-b border-slate-200 dark:border-white/[0.06]">Agent Analyses</p>
+                  <p className="px-4 sm:px-5 py-3 text-[10px] text-slate-500 uppercase tracking-widest font-bold border-b border-slate-200 dark:border-white/[0.06]">{t.canvas.agentAnalyses}</p>
                   <div className="divide-y divide-slate-200 dark:divide-white/[0.04]">
                     {roles.map((role: any) => {
                       const stream = streams[role.key];
                       const vote = report?.board_votes?.[role.key];
-                      const vt = token(vote?.vote);
+                      const vt = token(vote?.vote, t);
                       const displayText = (stream?.text || "")
                         .replace(/<think>[\s\S]*?<\/think>/gi, "")
                         .replace(/^\s*\*?\*?Final Analysis:\*?\*?\s*/i, "")
@@ -363,9 +382,13 @@ export default function MeetingCanvas({
                         <details key={role.key} className="group">
                           <summary className="flex items-center gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors list-none">
                             <span className={`w-7 h-7 rounded-md bg-gradient-to-br ${role.color} flex items-center justify-center text-xs flex-shrink-0`}>{role.icon}</span>
-                            <div className="flex-1 min-w-0">
-                              <span className="text-xs font-semibold text-slate-900 dark:text-white block truncate">{role.name || role.key}</span>
-                              <span className="text-[10px] text-slate-500 truncate">{role.title}</span>
+                            <div className="flex-1 min-w-0 text-start">
+                              <span className="text-xs font-semibold text-slate-900 dark:text-white block truncate">
+                                {t.agents[role.key]?.title || role.name || role.key}
+                              </span>
+                              <span className="text-[10px] text-slate-500 truncate">
+                                {t.agents[role.key]?.role || role.title}
+                              </span>
                             </div>
                             {vote && (
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`}>{vt.icon} {vt.label} · {vote.confidence}%</span>
@@ -374,7 +397,7 @@ export default function MeetingCanvas({
                           </summary>
                           <div className="px-4 sm:px-5 py-3 bg-white dark:bg-white/[0.01] border-t border-slate-100 dark:border-white/[0.04]">
                             <div className="prose prose-xs prose-slate dark:prose-invert max-w-none text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText || "_No analysis available._"}</ReactMarkdown>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText || `_${t.canvas.noAnalysis}_`}</ReactMarkdown>
                             </div>
                           </div>
                         </details>

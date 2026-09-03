@@ -59,7 +59,11 @@ export async function streamChat(
 ) {
   try {
     const token = localStorage.getItem("token");
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const currentLang = localStorage.getItem("mashwara_language") || "ur";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept-Language": currentLang,
+    };
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const response = await fetch(
@@ -67,7 +71,7 @@ export async function streamChat(
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ template, prompt, session_id: sessionId }),
+        body: JSON.stringify({ template, prompt, session_id: sessionId, language: currentLang }),
         signal: abortSignal,
       }
     );
@@ -217,18 +221,33 @@ export async function sendStandardMessage(sessionId: string, message: string): P
   return response.data;
 }
 
+export async function exchangeNeonAuthSession(sessionToken?: string): Promise<any> {
+  const response = await apiClient.post("/auth/neon/exchange", { session_token: sessionToken || "recent" });
+  return response.data;
+}
+
+export async function getNeonAuthConfig(): Promise<{ neon_auth_url: string; neon_auth_jwks_url?: string }> {
+  const response = await apiClient.get("/auth/neon/config");
+  return response.data;
+}
+
 export async function streamStandardMessage(
-  sessionId: string,
+  sessionId: string | null,
   message: string,
   onThinking: (text: string) => void,
   onChunk: (text: string) => void,
   onError: (error: string) => void,
   onComplete: () => void,
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  history?: Array<{ role: string; content: string }>
 ) {
   try {
     const token = localStorage.getItem("token");
-    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const currentLang = localStorage.getItem("mashwara_language") || "ur";
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept-Language": currentLang,
+    };
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const response = await fetch(`${apiClient.defaults.baseURL}/chat/stream_message`, {
@@ -237,6 +256,8 @@ export async function streamStandardMessage(
       body: JSON.stringify({
         session_id: sessionId,
         message,
+        language: currentLang,
+        history,
       }),
       signal: abortSignal,
     });

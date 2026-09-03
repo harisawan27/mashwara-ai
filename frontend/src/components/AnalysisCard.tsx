@@ -5,6 +5,7 @@
 
 import { useState } from "react";
 import type { AgentRole, AGENT_INFO } from "../types/meeting";
+import { useTranslation } from "../i18n";
 
 interface AnalysisCardProps {
   role: AgentRole;
@@ -15,6 +16,10 @@ interface AnalysisCardProps {
 
 export default function AnalysisCard({ role, agentInfo, analysis, delay }: AnalysisCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { t } = useTranslation();
+
+  const roleName = t.agents[role]?.title || role;
+  const roleTitle = t.agents[role]?.role || agentInfo.title;
 
   return (
     <div
@@ -33,9 +38,9 @@ export default function AnalysisCard({ role, agentInfo, analysis, delay }: Analy
           >
             {agentInfo.icon}
           </div>
-          <div className="text-left">
-            <p className="font-semibold text-white text-sm">{role} Analysis</p>
-            <p className="text-xs text-slate-500">{agentInfo.title}</p>
+          <div className="text-start">
+            <p className="font-semibold text-white text-sm">{roleName}</p>
+            <p className="text-xs text-slate-500">{roleTitle}</p>
           </div>
         </div>
 

@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import type { BoardVote } from "../types/meeting";
 import type { RoleInfo } from "../api/client";
+import { useTranslation } from "../i18n";
 
 interface VoteCardProps {
   roleInfo: RoleInfo;
@@ -22,6 +23,7 @@ const voteStyles = {
 
 export default function VoteCard({ roleInfo, vote, delay }: VoteCardProps) {
   const [barWidth, setBarWidth] = useState(0);
+  const { t } = useTranslation();
 
   // Animate the confidence bar on mount
   useEffect(() => {
@@ -31,8 +33,16 @@ export default function VoteCard({ roleInfo, vote, delay }: VoteCardProps) {
     return () => clearTimeout(timer);
   }, [vote.confidence, delay]);
 
-  const voteText = vote.vote || "DEFER";
-  const badgeStyle = voteStyles[voteText as keyof typeof voteStyles] || voteStyles.DEFER;
+  const rawVote = (vote.vote || "DEFER").toUpperCase();
+  const badgeStyle = voteStyles[rawVote as keyof typeof voteStyles] || voteStyles.DEFER;
+  const displayVote = (rawVote === "YES" || rawVote === "APPROVE")
+    ? t.votes.approve
+    : (rawVote === "NO" || rawVote === "REJECT")
+    ? t.votes.reject
+    : t.votes.defer;
+
+  const roleName = t.agents[roleInfo.key]?.title || roleInfo.name || roleInfo.key;
+  const roleTitle = t.agents[roleInfo.key]?.role || roleInfo.title;
 
   return (
     <div
@@ -47,9 +57,9 @@ export default function VoteCard({ roleInfo, vote, delay }: VoteCardProps) {
           >
             {roleInfo.icon}
           </div>
-          <div>
-            <p className="font-semibold text-white text-sm">{roleInfo.key}</p>
-            <p className="text-xs text-slate-500">{roleInfo.title}</p>
+          <div className="text-start">
+            <p className="font-semibold text-white text-sm">{roleName}</p>
+            <p className="text-xs text-slate-500">{roleTitle}</p>
           </div>
         </div>
 
@@ -57,14 +67,14 @@ export default function VoteCard({ roleInfo, vote, delay }: VoteCardProps) {
         <span
           className={`px-3 py-1 rounded-full text-xs font-bold border ${badgeStyle}`}
         >
-          {voteText}
+          {displayVote}
         </span>
       </div>
 
       {/* Confidence bar */}
       <div>
         <div className="flex justify-between items-center mb-1.5">
-          <span className="text-xs text-slate-400">Confidence</span>
+          <span className="text-xs text-slate-400">{t.canvas.confidence}</span>
           <span className="text-xs font-semibold text-slate-300">{vote.confidence}%</span>
         </div>
         <div className="h-2 rounded-full bg-slate-800 overflow-hidden">

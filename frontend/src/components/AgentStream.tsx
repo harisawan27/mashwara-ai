@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { RoleInfo } from "../api/client";
+import { useTranslation } from "../i18n";
 
 interface AgentStreamProps {
   role: RoleInfo;
@@ -18,17 +19,16 @@ interface AgentStreamProps {
   isModerator?: boolean;
 }
 
-const VOTE_STYLES: Record<string, { pill: string; icon: string; label: string }> = {
-  YES:     { pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30", icon: "✓", label: "YES" },
-  APPROVE: { pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30", icon: "✓", label: "YES" },
-  NO:      { pill: "bg-red-500/10     text-red-600     dark:text-red-400     ring-red-500/30",     icon: "✗", label: "NO"  },
-  REJECT:  { pill: "bg-red-500/10     text-red-600     dark:text-red-400     ring-red-500/30",     icon: "✗", label: "NO"  },
-  DEFER:   { pill: "bg-amber-500/10   text-amber-600   dark:text-amber-400   ring-amber-500/30",   icon: "⏸", label: "DEFER" },
-};
-
-function voteStyle(vote?: string) {
+function getVoteStyle(vote: string | undefined, t: any) {
   if (!vote) return null;
-  return VOTE_STYLES[vote.toUpperCase()] ?? VOTE_STYLES.DEFER;
+  const v = vote.toUpperCase();
+  if (v === "YES" || v === "APPROVE") {
+    return { pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30", icon: "✓", label: t.votes.approve };
+  }
+  if (v === "NO" || v === "REJECT") {
+    return { pill: "bg-red-500/10 text-red-600 dark:text-red-400 ring-red-500/30", icon: "✗", label: t.votes.reject };
+  }
+  return { pill: "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/30", icon: "⏸", label: t.votes.defer };
 }
 
 export default function AgentStream({
@@ -37,6 +37,7 @@ export default function AgentStream({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isExpanded, setIsExpanded] = useState(true);
   const [isThinkingOpen, setIsThinkingOpen] = useState(false);
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (scrollRef.current && isExpanded) {
@@ -66,7 +67,10 @@ export default function AgentStream({
   const confMatch = displayText.match(/CONFIDENCE:\s*(\d+)/i);
   const currentVote = voteData?.vote ?? (voteMatch ? voteMatch[1] : undefined);
   const currentConf = voteData?.confidence ?? (confMatch ? parseInt(confMatch[1], 10) : undefined);
-  const vs = voteStyle(currentVote);
+  const vs = getVoteStyle(currentVote, t);
+
+  const displayName = t.agents[role.key]?.title || role.name || role.key;
+  const displayTitle = t.agents[role.key]?.role || role.title;
 
   return (
     <div className={`
@@ -81,7 +85,7 @@ export default function AgentStream({
       {/* ── Card header ── */}
       <button
         onClick={() => setIsExpanded(v => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors text-start"
       >
         {/* Avatar */}
         <div className={`
@@ -93,18 +97,18 @@ export default function AgentStream({
         </div>
 
         {/* Name + title */}
-        <div className="flex-1 min-w-0 text-left">
+        <div className="flex-1 min-w-0 text-start">
           <p className="text-xs font-bold text-slate-900 dark:text-white truncate leading-tight">
-            {role.name || role.key}
+            {displayName}
           </p>
-          <p className="text-[10px] text-slate-500 truncate">{role.title}</p>
+          <p className="text-[10px] text-slate-500 truncate">{displayTitle}</p>
         </div>
 
         {/* Vote badge */}
         {vs && (
           <span className={`hidden sm:flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vs.pill}`}>
             {vs.icon} {vs.label}
-            {currentConf !== undefined && <span className="font-normal opacity-70 ml-0.5">· {currentConf}%</span>}
+            {currentConf !== undefined && <span className="font-normal opacity-70 ml-0.5 rtl:ml-0 rtl:mr-0.5">· {currentConf}%</span>}
           </span>
         )}
 
@@ -116,21 +120,21 @@ export default function AgentStream({
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
               </svg>
-              <span className="hidden sm:inline">Thinking</span>
+              <span className="hidden sm:inline">{t.common.thinking}</span>
             </span>
           ) : isWaiting ? (
             <span className="flex items-center gap-1 text-[10px] text-amber-500 font-medium">
               <svg className="w-3 h-3 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
               </svg>
-              <span className="hidden sm:inline">Waiting</span>
+              <span className="hidden sm:inline">{t.common.waiting}</span>
             </span>
           ) : (
             <span className="flex items-center gap-1 text-[10px] text-emerald-500 font-medium">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
               </svg>
-              <span className="hidden sm:inline">Done</span>
+              <span className="hidden sm:inline">{t.common.done}</span>
             </span>
           )}
         </span>
@@ -169,14 +173,14 @@ export default function AgentStream({
                 onClick={() => setIsThinkingOpen(v => !v)}
                 className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors group"
               >
-                <svg className={`w-3 h-3 transition-transform ${isThinkingOpen ? "rotate-90" : ""}`}
+                <svg className={`w-3 h-3 transition-transform ${isThinkingOpen ? "rotate-90" : "rtl:rotate-180"}`}
                   fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/>
                 </svg>
                 <svg className="w-3 h-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
                 </svg>
-                Thought process
+                {t.chat.thoughtProcess}
               </button>
               {isThinkingOpen && (
                 <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-500 italic leading-relaxed bg-slate-50 dark:bg-white/[0.02] rounded-lg p-3 border border-slate-200 dark:border-white/[0.04] max-h-40 overflow-y-auto custom-scrollbar whitespace-pre-wrap">
@@ -189,17 +193,17 @@ export default function AgentStream({
           {/* Main analysis text */}
           <div
             ref={scrollRef}
-            className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed max-h-56 overflow-y-auto custom-scrollbar pr-1 prose prose-xs prose-slate dark:prose-invert max-w-none"
+            className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed max-h-56 overflow-y-auto custom-scrollbar pr-1 rtl:pr-0 rtl:pl-1 prose prose-xs prose-slate dark:prose-invert max-w-none"
           >
             {displayText ? (
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
             ) : thinking ? (
-              <span className="text-slate-400 italic text-[11px]">Thinking…</span>
+              <span className="text-slate-400 italic text-[11px]">{t.common.thinking}</span>
             ) : (
-              <span className="text-slate-400 italic text-[11px]">Initializing…</span>
+              <span className="text-slate-400 italic text-[11px]">{t.common.loading}</span>
             )}
             {isActive && (
-              <span className="inline-block animate-pulse font-bold text-blue-500 ml-0.5">|</span>
+              <span className="inline-block animate-pulse font-bold text-blue-500 ml-0.5 rtl:ml-0 rtl:mr-0.5">|</span>
             )}
           </div>
         </div>

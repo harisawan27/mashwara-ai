@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useState } from "react";
+import { useTranslation } from "../i18n";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -17,12 +18,16 @@ export default function ConfirmModal({
   onConfirm,
   title,
   description,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
+  confirmText,
+  cancelText,
   isDestructive = true,
 }: ConfirmModalProps) {
+  const { t } = useTranslation();
   const [isRendered, setIsRendered] = useState(isOpen);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+
+  const effectiveConfirmText = confirmText || t.common.confirm;
+  const effectiveCancelText = cancelText || t.common.cancel;
 
   useEffect(() => {
     if (isOpen) {
@@ -36,7 +41,7 @@ export default function ConfirmModal({
   }, [isOpen, isRendered]);
 
   const handleClose = () => {
-    onClose(); // Parent will set isOpen to false, triggering the useEffect
+    onClose();
   };
 
   const handleConfirm = () => {
@@ -91,7 +96,7 @@ export default function ConfirmModal({
               onClick={handleClose}
               className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
             >
-              {cancelText}
+              {effectiveCancelText}
             </button>
             <button
               onClick={handleConfirm}
@@ -101,7 +106,7 @@ export default function ConfirmModal({
                   : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
               }`}
             >
-              {confirmText}
+              {effectiveConfirmText}
             </button>
           </div>
         </div>

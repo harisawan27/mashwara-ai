@@ -12,9 +12,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'boardroom-ai.svg'],
       manifest: {
-        name: 'Boardroom AI',
-        short_name: 'Boardroom AI',
-        description: 'Your personal Chief of Staff and Executive Board',
+        name: 'Mashwara AI',
+        short_name: 'Mashwara AI',
+        description: 'Your personal AI Advisory Board for Critical Decisions',
         theme_color: '#06080f',
         background_color: '#ffffff',
         display: 'standalone',

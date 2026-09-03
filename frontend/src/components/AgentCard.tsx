@@ -4,6 +4,7 @@
  */
 
 import type { AgentInfo } from "../types/meeting";
+import { useTranslation } from "../i18n";
 
 interface AgentCardProps {
   agent: AgentInfo;
@@ -12,6 +13,11 @@ interface AgentCardProps {
 }
 
 export default function AgentCard({ agent, isComplete, delay }: AgentCardProps) {
+  const { t } = useTranslation();
+
+  const roleName = t.agents[agent.role]?.title || agent.role;
+  const roleTitle = t.agents[agent.role]?.role || agent.title;
+
   return (
     <div
       className="glass rounded-xl p-5 animate-scale-in opacity-0 transition-all duration-500"
@@ -30,9 +36,9 @@ export default function AgentCard({ agent, isComplete, delay }: AgentCardProps) 
         </div>
 
         {/* Agent info */}
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-white text-sm">{agent.role}</h3>
-          <p className="text-xs text-slate-400 truncate">{agent.title}</p>
+        <div className="flex-1 min-w-0 text-start">
+          <h3 className="font-semibold text-white text-sm">{roleName}</h3>
+          <p className="text-xs text-slate-400 truncate">{roleTitle}</p>
         </div>
 
         {/* Status indicator */}
@@ -42,7 +48,7 @@ export default function AgentCard({ agent, isComplete, delay }: AgentCardProps) 
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
-              <span className="text-xs font-medium">Done</span>
+              <span className="text-xs font-medium">{t.common.done}</span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-slate-400">
@@ -50,7 +56,7 @@ export default function AgentCard({ agent, isComplete, delay }: AgentCardProps) 
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              <span className="text-xs">Thinking...</span>
+              <span className="text-xs">{t.common.thinking}</span>
             </div>
           )}
         </div>
