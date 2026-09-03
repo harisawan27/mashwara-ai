@@ -2,6 +2,7 @@ import os
 import uuid
 import logging
 import jwt
+import bcrypt
 from jwt import PyJWKClient
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -40,23 +41,26 @@ def get_jwks_client():
     global _jwks_client
     if _jwks_client is None:
         try:
-            _jwks_client = PyJWKClient(NEON_AUTH_JWKS_URL, cache_keys=True)
+            _jwks_client = PyJWKClient(NEON_AUTH_JWKS_URL)
         except Exception as e:
             logger.warning(f"Could not initialize PyJWKClient with {NEON_AUTH_JWKS_URL}: {e}")
     return _jwks_client
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password with safe truncation to 72 bytes to prevent bcrypt ValueError."""
-    if isinstance(plain_password, str):
-        # bcrypt has a 72 byte limit; truncate safely in bytes
-        plain_password = plain_password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    return pwd_context.verify(plain_password, hashed_password)
+    """Verify password with direct bcrypt check and pwd_context fallback."""
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8")[:72], hashed_password.encode("utf-8"))
+    except Exception:
+        try:
+            return pwd_context.verify(plain_password[:72], hashed_password)
+        except Exception:
+            return False
 
 def get_password_hash(password: str) -> str:
-    """Hash password with safe truncation to 72 bytes."""
-    if isinstance(password, str):
-        password = password.encode("utf-8")[:72].decode("utf-8", errors="ignore")
-    return pwd_context.hash(password)
+    """Hash password using native bcrypt."""
+    pwd_bytes = password.encode("utf-8")[:72]
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()

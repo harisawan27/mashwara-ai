@@ -1,5 +1,5 @@
 ---
-title: Boardroom AI
+title: Mashwara AI
 emoji: 🏛️
 colorFrom: indigo
 colorTo: purple

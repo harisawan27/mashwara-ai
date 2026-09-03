@@ -28,4 +28,8 @@ jobs:
             --commit-message "Sync from GitHub Actions" \
             --delete "*" \
             --exclude ".git/*" \
-            --exclude ".github/*"
+            --exclude ".github/*" \
+            --exclude "frontend/*" \
+            --exclude ".vscode/*" \
+            --exclude "*.db" \
+            --exclude "__pycache__/*"
