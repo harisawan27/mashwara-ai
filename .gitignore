@@ -1,0 +1,52 @@
+# ====================
+# Environment
+# ====================
+.env
+.env.local
+.env.production
+
+# ====================
+# Python
+# ====================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+.adk_env/
+*.whl
+
+# ====================
+# Node / Frontend
+# ====================
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# ====================
+# IDEs
+# ====================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ====================
+# Misc
+# ====================
+*.log
+*.pid
+.cache/
+*.db
+*.sqlite
+*.sqlite3

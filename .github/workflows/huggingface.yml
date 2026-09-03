@@ -1,0 +1,31 @@
+name: Sync to Hugging Face Hub
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# These permissions are required for OpenID Connect (OIDC) authentication
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hugging Face CLI
+        run: pip install -U "huggingface_hub[cli]"
+
+      - name: Sync to Hugging Face Space
+        env:
+          HF_OIDC_RESOURCE: spaces/harisawan07/mashwara-ai
+        run: |
+          hf upload harisawan07/mashwara-ai . . \
+            --repo-type space \
+            --commit-message "Sync from GitHub Actions" \
+            --delete "*" \
+            --exclude ".git/*" \
+            --exclude ".github/*"
