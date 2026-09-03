@@ -684,7 +684,7 @@ def create_gradio_app() -> gr.Blocks:
                 Brainstorm, test counter-arguments, and refine your pitch before calling a formal vote of the board.
                 """)
                 
-                chatbot = gr.Chatbot(height=520)
+                chatbot = gr.Chatbot(height=520, type="tuples")
                 with gr.Row():
                     chat_msg = gr.Textbox(placeholder="Ask your Chief of Staff a question or paste an early idea...", scale=4, show_label=False)
                     chat_send = gr.Button("Send", variant="primary", scale=1)
@@ -747,6 +747,34 @@ app = gr.mount_gradio_app(fastapi_app, demo_app, path="/")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 7860))
-    logger.info(f"🏛️ Starting Boardroom AI Unified Gradio + FastAPI Server on port {port}...")
+    import socket
+
+    # On Hugging Face Spaces, port 7860 is the primary public entrypoint.
+    # Gradio 5.x internally reserves port 7861 for its SSR Node server, so 7861 must NEVER be used for Uvicorn.
+    def get_server_port() -> int:
+        env_port = os.getenv("PORT")
+        try:
+            preferred = int(env_port) if env_port else 7860
+        except (ValueError, TypeError):
+            preferred = 7860
+
+        # If environment passed 7861, force 7860 (Hugging Face public port)
+        if preferred == 7861:
+            preferred = 7860
+
+        # Check candidate ports, prioritizing 7860 and strictly avoiding 7861
+        candidates = [preferred, 7860, 7862, 7863, 8000]
+        candidates = [p for p in candidates if p != 7861]
+        for p in candidates:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                try:
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    s.bind(("0.0.0.0", p))
+                    return p
+                except OSError:
+                    continue
+        return 7860
+
+    port = get_server_port()
+    logger.info(f"🏛️ Starting Mashwara AI Unified Gradio + FastAPI Server on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
