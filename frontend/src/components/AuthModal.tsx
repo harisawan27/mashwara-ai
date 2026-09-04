@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuthStore } from "../store/authStore";
 import { login, register, getNeonAuthConfig } from "../api/client";
 import { useTranslation } from "../i18n";
+import { getNeonAuthClient } from "../auth/neonAuth";
 
 interface AuthModalProps {
   isOpen?: boolean;
@@ -63,31 +64,32 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
       }
 
       const callbackUrl = `${window.location.origin}/?neon_auth=1`;
-      const res = await fetch(`${neonAuthUrl}/sign-in/social`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          provider: "google",
-          callbackURL: callbackUrl,
-        }),
-        credentials: "include",
+      const authClient = getNeonAuthClient(neonAuthUrl);
+
+      // Use official Neon Auth SDK social sign-in
+      const res = await authClient.signIn.social({
+        provider: "google",
+        callbackURL: callbackUrl,
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.message || "Failed to initiate Google OAuth");
+      if (res?.error) {
+        console.error("Google OAuth initiation failed", {
+          status: (res.error as any)?.status || 400,
+          code: (res.error as any)?.code || "OAUTH_INITIATION_FAILED",
+          message: res.error.message || "Failed to initiate Google OAuth",
+        });
+        throw new Error(res.error.message || "Failed to initiate Google OAuth");
       }
 
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error("Missing OAuth redirect URL");
+      if (res?.data?.url) {
+        window.location.href = res.data.url;
       }
     } catch (err: any) {
-      console.error("Google sign in failed:", err);
+      console.error("Google OAuth initiation failed", {
+        status: err?.status || err?.statusCode || 500,
+        code: err?.code || "OAUTH_INITIATION_FAILED",
+        message: err?.message || String(err),
+      });
       setError(t.auth.googleAuthFailed);
       setGoogleLoading(false);
     }

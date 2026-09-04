@@ -3,6 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe, exchangeNeonAuthSession, getNeonAuthConfig } from "../api/client";
 import type { RoleInfo } from "../api/client";
+import { getNeonAuthClient } from "../auth/neonAuth";
 import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
@@ -90,7 +91,24 @@ export default function Dashboard() {
           const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
           let foundToken = params.get("session_token") || params.get("token") || hashParams.get("token") || hashParams.get("access_token") || undefined;
 
-          // 2. Query Neon Auth session if not in URL parameters
+          // 2. Query Neon Auth session using official Neon Auth SDK
+          if (!foundToken) {
+            try {
+              const authClient = getNeonAuthClient(neonAuthUrl);
+              const sessionRes = await authClient.getSession();
+              if ((sessionRes as any)?.data?.session?.token) {
+                foundToken = (sessionRes as any).data.session.token;
+              } else if ((sessionRes as any)?.session?.token) {
+                foundToken = (sessionRes as any).session.token;
+              } else if ((sessionRes as any)?.data?.token) {
+                foundToken = (sessionRes as any).data.token;
+              }
+            } catch (err) {
+              console.warn("Could not retrieve session from Neon Auth client directly:", err);
+            }
+          }
+
+          // 3. Fallback to /get-session with credentials include if SDK didn't return token in field
           if (!foundToken) {
             try {
               const sessionRes = await fetch(`${neonAuthUrl}/get-session`, {
@@ -101,16 +119,34 @@ export default function Dashboard() {
                 foundToken = sessionData?.session?.token || sessionData?.token;
               }
             } catch (err) {
-              console.warn("Could not retrieve session from Neon Auth directly:", err);
+              console.warn("Raw get-session query failed:", err);
             }
           }
 
-          // 3. Exchange verified session or recover recent Google login with backend
-          const res = await exchangeNeonAuthSession(foundToken || "recent");
-          if (res && res.access_token) {
-            setToken(res.access_token);
-            if (res.user) setUser(res.user);
-            fetchSessions();
+          // 4. Deterministically exchange verified, user-bound session token with backend
+          if (foundToken) {
+            const res = await exchangeNeonAuthSession(foundToken);
+            if (res && res.access_token) {
+              setToken(res.access_token);
+              if (res.user) setUser(res.user);
+              fetchSessions();
+
+              // Restore guest workspace state if saved before OAuth redirect
+              const savedGuest = sessionStorage.getItem("mashwara_guest_workspace");
+              if (savedGuest) {
+                try {
+                  const data = JSON.parse(savedGuest);
+                  if (data.messages && data.messages.length > 0) setMessages(data.messages);
+                  if (data.input) setInput(data.input);
+                  if (data.selectedTemplate) setSelectedTemplate(data.selectedTemplate);
+                } catch (parseErr) {
+                  console.warn("Failed to restore guest workspace:", parseErr);
+                }
+                sessionStorage.removeItem("mashwara_guest_workspace");
+              }
+            }
+          } else {
+            console.error("No valid user-bound Neon session token found after Google OAuth callback");
           }
         } catch (err) {
           console.error("Neon Auth exchange error:", err);
@@ -125,6 +161,16 @@ export default function Dashboard() {
       handleNeonOAuthReturn();
     }
   }, [setToken, setUser, fetchSessions]);
+
+  // Persist guest workspace temporarily before external OAuth redirect so conversations survive
+  useEffect(() => {
+    if (!token && (messages.length > 0 || input.trim())) {
+      sessionStorage.setItem(
+        "mashwara_guest_workspace",
+        JSON.stringify({ messages, input, selectedTemplate })
+      );
+    }
+  }, [token, messages, input, selectedTemplate]);
 
   useEffect(() => {
     if (token) {

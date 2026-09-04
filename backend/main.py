@@ -255,7 +255,17 @@ async def get_neon_auth_config():
         os.getenv("NEON_AUTH_BASE_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth")
     )
     raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", f"{neon_url}/.well-known/jwks.json")
-    jwks_url = raw_jwks[:-3] + ".json" if raw_jwks.endswith(".well-known/jwks.js") else raw_jwks
+    if raw_jwks.endswith(".well-know"):
+        jwks_url = raw_jwks + "n/jwks.json"
+    elif raw_jwks.endswith(".well-known"):
+        jwks_url = raw_jwks + "/jwks.json"
+    elif raw_jwks.endswith(".well-known/jwks.js"):
+        jwks_url = raw_jwks[:-3] + ".json"
+    elif not raw_jwks.endswith(".json"):
+        jwks_url = raw_jwks.rstrip("/") + "/.well-known/jwks.json"
+    else:
+        jwks_url = raw_jwks
+
     return {
         "neon_auth_url": neon_url,
         "neon_auth_jwks_url": jwks_url,
@@ -269,13 +279,16 @@ async def exchange_neon_auth_session(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Exchanges a verified Neon Auth session token (or JWT token) for a Mashwara AI JWT token.
-    Supports:
-    1. Direct Neon Auth JWT verification via JWKS URL
-    2. Database session token verification in neon_auth.session
-    3. Recent Google OAuth session recovery (handles partitioned 3rd party cookies seamlessly)
+    Exchanges a verified, user-bound Neon Auth session token or JWT for a Mashwara AI JWT.
+    Enforces deterministic user-bound credential validation:
+    1. Direct Neon Auth JWT signature verification via JWKS
+    2. Exact session token lookup against active neon_auth.session records
+    No unverified recent-session guessing allowed.
     """
     token_val = (body.session_token or "").strip()
+    if not token_val or token_val.lower() in ["recent", "google", "oauth", "none", "null", "undefined"]:
+        raise HTTPException(status_code=401, detail="Valid user-bound Neon Auth credential is required")
+
     neon_email = None
     neon_name = ""
     neon_image = ""
@@ -285,10 +298,24 @@ async def exchange_neon_auth_session(
     from jwt import PyJWKClient
 
     # Strategy 1: If token has 3 parts separated by dots, verify as a JWT via JWKS
-    if token_val and token_val.count(".") == 2:
+    if token_val.count(".") == 2:
         try:
-            raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth/.well-known/jwks.json")
-            jwks_url = raw_jwks[:-3] + ".json" if raw_jwks.endswith(".well-known/jwks.js") else raw_jwks
+            neon_url = os.getenv(
+                "NEON_AUTH_URL",
+                os.getenv("NEON_AUTH_BASE_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth")
+            )
+            raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", f"{neon_url}/.well-known/jwks.json")
+            if raw_jwks.endswith(".well-know"):
+                jwks_url = raw_jwks + "n/jwks.json"
+            elif raw_jwks.endswith(".well-known"):
+                jwks_url = raw_jwks + "/jwks.json"
+            elif raw_jwks.endswith(".well-known/jwks.js"):
+                jwks_url = raw_jwks[:-3] + ".json"
+            elif not raw_jwks.endswith(".json"):
+                jwks_url = raw_jwks.rstrip("/") + "/.well-known/jwks.json"
+            else:
+                jwks_url = raw_jwks
+
             jwks_client = PyJWKClient(jwks_url)
             signing_key = jwks_client.get_signing_key_from_jwt(token_val)
             decoded = jwt.decode(
@@ -304,8 +331,8 @@ async def exchange_neon_auth_session(
         except Exception as jwt_err:
             logger.warning(f"JWKS token verification attempted but failed: {jwt_err}")
 
-    # Strategy 2: Check database neon_auth.session table with provided session token
-    if not neon_email and token_val and token_val not in ["recent", "google", "oauth", "none"]:
+    # Strategy 2: Check database neon_auth.session table for this exact session token
+    if not neon_email:
         try:
             query = text("""
                 SELECT s.token, s."expiresAt", u.id, u.email, u.name, u.image 
@@ -323,29 +350,8 @@ async def exchange_neon_auth_session(
         except Exception as e:
             logger.error(f"Error checking neon_auth session in DB: {e}", exc_info=True)
 
-    # Strategy 3: Check recent Google OAuth session in neon_auth (recovery when 3rd party cookies are blocked)
     if not neon_email:
-        try:
-            recent_query = text("""
-                SELECT s.token, s."expiresAt", u.id, u.email, u.name, u.image 
-                FROM neon_auth.session s
-                JOIN neon_auth.user u ON s."userId" = u.id
-                JOIN neon_auth.account a ON a."userId" = u.id
-                WHERE a."providerId" = 'google' AND s."createdAt" > NOW() - INTERVAL '15 minutes'
-                ORDER BY s."createdAt" DESC LIMIT 1;
-            """)
-            res = await db.execute(recent_query)
-            row = res.fetchone()
-            if row:
-                neon_email = row.email
-                neon_name = row.name or ""
-                neon_image = row.image or ""
-                logger.info(f"Verified Neon Auth user via recent Google OAuth session: {neon_email}")
-        except Exception as e:
-            logger.error(f"Error checking recent Google session in DB: {e}", exc_info=True)
-
-    if not neon_email:
-        raise HTTPException(status_code=401, detail="Invalid or expired Neon Auth session")
+        raise HTTPException(status_code=401, detail="Invalid or expired Neon Auth credential for this user")
 
     # Find or create user in public.users
     user_res = await db.execute(select(User).filter(User.email == neon_email))

@@ -30,8 +30,14 @@ NEON_AUTH_URL = os.getenv(
     os.getenv("NEON_AUTH_BASE_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth")
 )
 _raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", f"{NEON_AUTH_URL}/.well-known/jwks.json")
-if _raw_jwks.endswith(".well-known/jwks.js"):
+if _raw_jwks.endswith(".well-know"):
+    NEON_AUTH_JWKS_URL = _raw_jwks + "n/jwks.json"
+elif _raw_jwks.endswith(".well-known"):
+    NEON_AUTH_JWKS_URL = _raw_jwks + "/jwks.json"
+elif _raw_jwks.endswith(".well-known/jwks.js"):
     NEON_AUTH_JWKS_URL = _raw_jwks[:-3] + ".json"
+elif not _raw_jwks.endswith(".json"):
+    NEON_AUTH_JWKS_URL = _raw_jwks.rstrip("/") + "/.well-known/jwks.json"
 else:
     NEON_AUTH_JWKS_URL = _raw_jwks
 
