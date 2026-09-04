@@ -3,6 +3,7 @@ import { useAuthStore } from "../store/authStore";
 import { login, register, getNeonAuthConfig } from "../api/client";
 import { useTranslation } from "../i18n";
 import { getNeonAuthClient } from "../auth/neonAuth";
+import { LocalizedBrand } from "./LocalizedBrand";
 
 interface AuthModalProps {
   isOpen?: boolean;
@@ -156,19 +157,13 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           <h2 className="text-2xl mb-1.5 flex items-center justify-center gap-1.5 flex-wrap">
             {isRTL || language === "roman-ur" ? (
               <>
-                <span className="font-extrabold tracking-tight text-[1.1em]">
-                  <span className="text-[#0F172A] dark:text-white">{t.brand.firstPart}</span>
-                  <span className="text-[#2563EB]">{t.brand.secondPart}</span>
-                </span>
+                <LocalizedBrand className="text-[1.1em] font-extrabold tracking-tight" />
                 <span className="font-bold text-slate-900 dark:text-white">{t.auth.welcomeTo}</span>
               </>
             ) : (
               <>
                 <span className="font-bold text-slate-900 dark:text-white">{t.auth.welcomeTo}</span>
-                <span className="font-extrabold tracking-tight text-[1.1em]">
-                  <span className="text-[#0F172A] dark:text-white">{t.brand.firstPart}</span>
-                  <span className="text-[#2563EB]">{t.brand.secondPart}</span>
-                </span>
+                <LocalizedBrand className="text-[1.1em] font-extrabold tracking-tight" />
               </>
             )}
           </h2>

@@ -18,6 +18,7 @@ import { getSharedMashwara, type PublicSharedMashwaraData } from "../api/client"
 import MashwaraResultView from "../components/MashwaraResultView";
 import { getTranslations, type SupportedLanguage } from "../i18n";
 import { exportMashwaraPdf } from "../utils/pdfExport";
+import { LocalizedBrand } from "../components/LocalizedBrand";
 
 export default function SharedMashwaraPage() {
   const { shareId } = useParams<{ shareId: string }>();
@@ -198,9 +199,7 @@ export default function SharedMashwaraPage() {
             <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
           </div>
           <div className="min-w-0">
-            <span className="text-xs font-bold text-slate-900 dark:text-white block leading-tight">
-              {reportLang === "ur" ? "AI مشورہ" : "Mashwara AI"}
-            </span>
+            <LocalizedBrand forceUrdu={reportLang === "ur"} className="text-xs font-bold text-slate-900 dark:text-white block leading-tight" />
           </div>
         </Link>
 

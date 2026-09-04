@@ -12,6 +12,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
+import { LocalizedBrand } from "./LocalizedBrand";
 import { useTranslation } from "../i18n";
 import type { RoleInfo, SharedMashwaraExpert } from "../api/client";
 
@@ -278,25 +279,27 @@ export default function MashwaraResultView({
                   data-role-id={role.key}
                   className="rounded-xl border border-slate-200 dark:border-white/10 bg-white dark:bg-[#0d1020] p-4 shadow-sm break-inside-avoid page-break-inside-avoid"
                 >
-                  <header className="flex items-center justify-between gap-3 pb-3 mb-3 border-b border-slate-100 dark:border-white/5">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm`}>
+                  <header className="flex items-start justify-between gap-3 pb-3 mb-3 border-b border-slate-100 dark:border-white/5">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className={`w-8 h-8 rounded-lg bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm mt-0.5`}>
                         {role.icon}
                       </div>
-                      <div className="min-w-0 text-start">
-                        <h3 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      <div className="min-w-0 text-start flex flex-col gap-0.5">
+                        <h3 className="text-xs font-bold text-slate-900 dark:text-white leading-snug">
                           {t.agents[role.key]?.title || role.name || role.key}
                         </h3>
-                        <p className="text-[10px] text-slate-500 truncate">
+                        <p className="text-[10px] text-slate-500 leading-tight">
                           {t.agents[role.key]?.role || role.title}
                         </p>
+                        {effectiveVote && (
+                          <div className="mt-1 flex items-center">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 ${vs.pill}`}>
+                              {vs.icon} {vs.label} · {effectiveVote.confidence}%
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    {effectiveVote && (
-                      <span className={`flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vs.pill}`}>
-                        {vs.icon} {vs.label} · {effectiveVote.confidence}%
-                      </span>
-                    )}
                   </header>
                   <div className="prose prose-xs prose-slate dark:prose-invert max-w-none text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{cleanText || `_${t.canvas.noAnalysis}_`}</ReactMarkdown>
@@ -642,7 +645,7 @@ export default function MashwaraResultView({
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-extrabold text-slate-900 tracking-tight">
-                  {isUrdu ? "AI مشورہ" : "Mashwara AI"}
+                  <LocalizedBrand forceUrdu={isUrdu} />
                 </h1>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
                   {templateLabel}
@@ -712,30 +715,32 @@ export default function MashwaraResultView({
                 data-pdf-section={sectionKey}
                 className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3"
               >
-                <header className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm text-white`}>
+                <header className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm text-white mt-0.5`}>
                       {role.icon}
                     </div>
-                    <div className="min-w-0 text-start">
+                    <div className="min-w-0 text-start flex flex-col gap-0.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600 flex-shrink-0">
                           #{idx + 1}
                         </span>
-                        <h3 className="text-xs font-bold text-slate-900 truncate">
+                        <h3 className="text-xs font-bold text-slate-900 leading-snug">
                           {t.agents[role.key]?.title || role.name || role.key}
                         </h3>
                       </div>
-                      <p className="text-[10px] text-slate-500 truncate">
+                      <p className="text-[10px] text-slate-500 leading-tight">
                         {t.agents[role.key]?.role || role.title}
                       </p>
+                      {effectiveVote && (
+                        <div className="mt-1 flex items-center">
+                          <span className={`inline-flex items-center gap-1.5 text-[10px] font-bold px-2 py-0.5 rounded-lg border shadow-sm ${vs.pill}`}>
+                            {vs.icon} {vs.label} · {effectiveVote.confidence}%
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
-                  {effectiveVote && (
-                    <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border shadow-sm flex-shrink-0 ${vs.pill}`}>
-                      {vs.icon} {vs.label} · {effectiveVote.confidence}%
-                    </span>
-                  )}
                 </header>
                 <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -766,7 +771,7 @@ export default function MashwaraResultView({
           );
         })}
 
-        {/* Lead Mashir / relevant synthesis if appropriate */}
+        {/* Lead Musheer / relevant synthesis if appropriate */}
         {leadAdvisorText && (() => {
           const leadBlocks = splitAnalysisIntoBlocks(leadAdvisorText);
           return (
@@ -782,7 +787,7 @@ export default function MashwaraResultView({
                     </div>
                     <div>
                       <h3 className="text-xs font-bold text-slate-900">
-                        {moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Mashir")}
+                        {moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Musheer")}
                       </h3>
                       <p className="text-[10px] text-indigo-700">
                         {isUrdu ? "جامع مشاورت اور حتمی خلاصہ" : "Council Synthesis & Deliberation Lead"}
@@ -806,7 +811,7 @@ export default function MashwaraResultView({
                 >
                   <div className="text-[10px] text-indigo-600 font-semibold flex items-center gap-1.5">
                     <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
-                    <span>{moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Mashir")}</span>
+                    <span>{moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Musheer")}</span>
                     <span>•</span>
                     <span>{isUrdu ? "خلاصہ (جاری)" : "Synthesis (Contd.)"}</span>
                   </div>

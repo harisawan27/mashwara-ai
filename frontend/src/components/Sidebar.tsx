@@ -6,6 +6,7 @@ import { useTranslation } from "../i18n";
 import { useNavigate } from "react-router-dom";
 import ThemeToggle from "./ThemeToggle";
 import ConfirmModal from "./ConfirmModal";
+import { LocalizedBrand } from "./LocalizedBrand";
 
 interface SessionInfo {
   id: string;
@@ -131,14 +132,12 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
       }`}>
         <div className="w-64 h-full flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between">
+        <div className="h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-white shadow-md ring-1 ring-slate-900/5 flex items-center justify-center p-1">
               <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
             </div>
-            <span className="text-sm font-extrabold tracking-tight">
-              <span className="text-[#0F172A] dark:text-white">{t.brand.firstPart}</span><span className="text-[#2563EB]">{t.brand.secondPart}</span>
-            </span>
+            <LocalizedBrand className="text-sm font-extrabold tracking-tight" />
           </div>
           {onClose && (
             <button onClick={onClose} className="p-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
@@ -295,13 +294,13 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                 onOpenTutorial();
                 if (window.innerWidth < 768 && onClose) onClose();
               }}
-              className="w-full flex items-center gap-3 md:gap-2 text-sm md:text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors py-2 md:py-1.5 px-3 md:px-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/10 font-medium"
+              className="w-full flex items-center gap-2 text-xs md:text-[11px] text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors py-2 md:py-1.5 px-3 md:px-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/10 font-semibold whitespace-nowrap min-w-0"
             >
-              <svg className="w-5 h-5 md:w-4 md:h-4 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              {t.sidebar.howItWorks}
+              <span className="truncate whitespace-nowrap min-w-0">{t.sidebar.howItWorks}</span>
             </button>
             <div className="h-px w-full bg-slate-200 dark:bg-white/5 my-1"></div>
           </>

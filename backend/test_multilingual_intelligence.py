@@ -147,11 +147,11 @@ class TestRoleMetadataLocalization(unittest.TestCase):
         self.assertEqual(ROLE_METADATA["family_constraint_advisor"]["ur"]["name"], "خاندانی اور عملی مشیر")
 
     def test_roman_urdu_role_names(self):
-        self.assertEqual(ROLE_METADATA["career_advisor"]["roman-ur"]["name"], "Career Mashir")
-        self.assertEqual(ROLE_METADATA["financial_advisor"]["roman-ur"]["name"], "Financial Mashir")
+        self.assertEqual(ROLE_METADATA["career_advisor"]["roman-ur"]["name"], "Career Musheer")
+        self.assertEqual(ROLE_METADATA["financial_advisor"]["roman-ur"]["name"], "Financial Musheer")
         self.assertEqual(ROLE_METADATA["critical_challenger"]["roman-ur"]["name"], "Mukhalif Raaye")
-        self.assertEqual(ROLE_METADATA["lead_advisor"]["roman-ur"]["name"], "Lead Mashir")
-        self.assertEqual(ROLE_METADATA["family_constraint_advisor"]["roman-ur"]["name"], "Family & Practical Mashir")
+        self.assertEqual(ROLE_METADATA["lead_advisor"]["roman-ur"]["name"], "Lead Musheer")
+        self.assertEqual(ROLE_METADATA["family_constraint_advisor"]["roman-ur"]["name"], "Family & Practical Musheer")
 
     def test_english_role_names(self):
         self.assertEqual(ROLE_METADATA["career_advisor"]["en"]["name"], "Career Advisor")
@@ -235,7 +235,7 @@ class TestSelectiveRound2AndVoting(unittest.TestCase):
         
         # Financial advisor participates in rebuttal and revises view
         rebuttal_output = """
-        Maine Career Mashir ki baat suni hai ke long-term skills barh rahi hain. Lekin kharche kam nahi ho sakte.
+        Maine Career Musheer ki baat suni hai ke long-term skills barh rahi hain. Lekin kharche kam nahi ho sakte.
         ```json
         {
           "challenge_to": "career_advisor",

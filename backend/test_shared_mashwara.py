@@ -28,7 +28,7 @@ class TestSharedMashwaraSnapshot(unittest.TestCase):
         roles = [
             {
                 "key": "career_advisor",
-                "name": "Career Mashir",
+                "name": "Career Musheer",
                 "title": "Career Strategy",
                 "description": "Career planning",
                 "icon": "🧭",
@@ -36,7 +36,7 @@ class TestSharedMashwaraSnapshot(unittest.TestCase):
             },
             {
                 "key": "lead_advisor",
-                "name": "Lead Mashir",
+                "name": "Lead Musheer",
                 "is_moderator": True,
             }
         ]
@@ -52,7 +52,7 @@ class TestSharedMashwaraSnapshot(unittest.TestCase):
             "board_votes": {
                 "career_advisor": {"vote": "YES", "confidence": 85}
             },
-            "debate_summary": "Tammam mashireen ne ittefaq kiya.",
+            "debate_summary": "Tammam musheereen ne ittefaq kiya.",
             "key_risks": ["Cash flow risk"],
             "recommended_actions": ["30 din ka test karein"]
         }
@@ -72,7 +72,7 @@ class TestSharedMashwaraSnapshot(unittest.TestCase):
         
         expert = snapshot["experts"][0]
         self.assertEqual(expert["role_id"], "career_advisor")
-        self.assertEqual(expert["name"], "Career Mashir")
+        self.assertEqual(expert["name"], "Career Musheer")
         self.assertEqual(expert["vote"], "YES")
         self.assertEqual(expert["confidence"], 85)
         self.assertNotIn("<think>", expert["analysis"])
@@ -136,7 +136,7 @@ class TestSharedMashwaraAPI(unittest.IsolatedAsyncioTestCase):
             "experts": [
                 {
                     "role_id": "career_advisor",
-                    "name": "Career Mashir",
+                    "name": "Career Musheer",
                     "title": "Career Strategy",
                     "description": "Planning",
                     "icon": "🧭",
@@ -174,7 +174,7 @@ class TestSharedMashwaraAPI(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(read_data["language"], "roman-ur")
         self.assertEqual(read_data["decision_title"], "Online store vs freelancing")
         self.assertEqual(len(read_data["snapshot"]["experts"]), 1)
-        self.assertEqual(read_data["snapshot"]["experts"][0]["name"], "Career Mashir")
+        self.assertEqual(read_data["snapshot"]["experts"][0]["name"], "Career Musheer")
         self.assertEqual(read_data["snapshot"]["report"]["final_decision"], "APPROVE")
         
         # Verify no owner or sensitive metadata leaked

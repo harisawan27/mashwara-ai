@@ -359,7 +359,7 @@ async def run_meeting(
                     await asyncio.sleep(1.0 * (attempt + 1))
                 else:
                     logger.error(f"Specialist {role_key} permanently failed: {e}")
-                    fallback_msg = f"*[Mashir unavailable: {e}]*"
+                    fallback_msg = f"*[Musheer unavailable: {e}]*"
                     await queue.put({"type": "chunk", "agent": role_key, "text": fallback_msg})
                     return fallback_msg
 
@@ -381,11 +381,31 @@ async def run_meeting(
         raw_text = await call_specialist_stream(rk, user_msg, sys_prompt, SPECIALIST_MODEL, SPECIALIST_TOKENS)
         parsed = parse_specialist_output(raw_text)
 
+        # Build concise public reasoning summary (2-4 bullets) from explicit structured rationale
+        reasoning_bullets = []
+        for r in parsed.get("rationale", [])[:2]:
+            if r and isinstance(r, str):
+                cleaned = r.strip().lstrip("-•* ")
+                if cleaned:
+                    reasoning_bullets.append(f"• {cleaned}")
+        if parsed.get("key_concern"):
+            kc = parsed["key_concern"].strip().lstrip("-•* ")
+            if kc:
+                reasoning_bullets.append(f"• {kc}")
+        if parsed.get("assumptions") and len(reasoning_bullets) < 4:
+            for asm in parsed["assumptions"][:1]:
+                if asm and isinstance(asm, str):
+                    cleaned_asm = asm.strip().lstrip("-•* ")
+                    if cleaned_asm:
+                        reasoning_bullets.append(f"• {cleaned_asm}")
+
+        reasoning_summary = "\n".join(reasoning_bullets) if reasoning_bullets else ""
+
         await queue.put({
             "type": "final",
             "agent": rk,
             "text": parsed["clean_text"],
-            "thinking": f"Status: {parsed['position'].upper()} (Confidence: {parsed['confidence']}%)"
+            "thinking": reasoning_summary
         })
         await queue.put({"type": "status", "agent": rk, "status": "done", "message": ""})
         return rk, parsed
@@ -477,11 +497,32 @@ async def run_meeting(
                 "position": parsed["final_position"],
             }
 
+            # Build revised concise reasoning summary
+            r2_bullets = []
+            if parsed.get("rebuttal"):
+                reb = parsed["rebuttal"].strip().lstrip("-•* ")
+                if reb:
+                    r2_bullets.append(f"• {reb}")
+            if parsed.get("changed_mind_on"):
+                cmo = parsed["changed_mind_on"].strip().lstrip("-•* ")
+                if cmo:
+                    r2_bullets.append(f"• {cmo}")
+            
+            orig_r1 = round1_results.get(rk, {})
+            orig_bullets = []
+            for r in orig_r1.get("rationale", [])[:1]:
+                if r and isinstance(r, str):
+                    c = r.strip().lstrip("-•* ")
+                    if c:
+                        orig_bullets.append(f"• {c}")
+            
+            combined_summary = "\n".join(orig_bullets + r2_bullets) if (orig_bullets or r2_bullets) else ""
+
             await queue.put({
                 "type": "final",
                 "agent": rk,
                 "text": f"{round1_results.get(rk, {}).get('clean_text', '')}\n\n**Rebuttal / Final View:**\n{parsed['clean_text']}",
-                "thinking": f"Revised: {parsed['final_position'].upper()} ({parsed['final_confidence']}%)"
+                "thinking": combined_summary
             })
             await queue.put({"type": "status", "agent": rk, "status": "done", "message": ""})
             return rk, parsed

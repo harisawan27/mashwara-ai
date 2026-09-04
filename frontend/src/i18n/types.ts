@@ -121,6 +121,7 @@ export interface TranslationSchema {
     sendTooltip: string;
     stopTooltip: string;
     thoughtProcess: string;
+    reasoningSummary: string;
     thinkingStatus: string;
     chiefOfStaffTyping: string;
     editPrompt: string;
@@ -161,14 +162,22 @@ export interface TranslationSchema {
     defer: string;
   };
   tutorial: {
-    slides: {
-      title: string;
-      description: string;
-      icon: string;
-    }[];
+    guideTitle?: string;
+    stepOf?: string;
+    skip?: string;
     back: string;
     next: string;
     getStarted: string;
+    slides: {
+      id?: string;
+      tag?: string;
+      headline?: string;
+      title: string;
+      description?: string;
+      body?: string;
+      tips?: string[];
+      icon?: string;
+    }[];
   };
   templates: Record<string, { name: string; description: string }>;
   agents: Record<string, { title: string; role: string }>;

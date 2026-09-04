@@ -9,6 +9,7 @@ import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
 import TutorialModal from "../components/TutorialModal";
+import { LocalizedBrand } from "../components/LocalizedBrand";
 import { useAuthStore } from "../store/authStore";
 import { useSessionStore, deriveSessionTitle } from "../store/sessionStore";
 import { TEMPLATES } from "../types/meeting";
@@ -528,7 +529,7 @@ export default function Dashboard() {
       />
 
       <div className="flex-1 flex flex-col relative z-10 h-screen w-full md:w-auto">
-        <nav className="p-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between glass">
+        <nav className="h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between bg-slate-50/90 dark:bg-[#06080f]/90 backdrop-blur-xl shrink-0">
           <div className="flex items-center gap-3">
             {!isSidebarOpen && (
               <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
@@ -536,13 +537,11 @@ export default function Dashboard() {
               </button>
             )}
             <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-md bg-white shadow-sm ring-1 ring-slate-900/5 flex items-center justify-center p-1">
+              <div className="w-8 h-8 rounded-lg bg-white shadow-md ring-1 ring-slate-900/5 flex items-center justify-center p-1">
                 <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
               </div>
               <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 hidden sm:block"></div>
-              <span className="text-lg font-extrabold tracking-tight">
-                <span className="text-[#0F172A] dark:text-white">{t.brand.firstPart}</span><span className="text-[#2563EB]">{t.brand.secondPart}</span>
-              </span>
+              <LocalizedBrand className="text-lg font-extrabold tracking-tight" />
             </div>
           </div>
         </nav>
@@ -560,7 +559,13 @@ export default function Dashboard() {
                   </div>
                   <div className="text-start">
                     <p className="text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-200">
-                      {t.guest.bannerNotice}
+                      {isRTL ? (
+                        <>
+                          آپ مہمان کے طور پر <LocalizedBrand firstClassName="font-bold text-slate-800 dark:text-slate-200" aiClassName="text-[#2563EB] font-black" className="mx-1" /> استعمال کر رہے ہیں۔ آپ کی گفتگو محفوظ نہیں ہوگی۔
+                        </>
+                      ) : (
+                        t.guest.bannerNotice
+                      )}
                     </p>
                     <p className="text-[11px] sm:text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                       {t.guest.bannerSecondary}
@@ -583,7 +588,13 @@ export default function Dashboard() {
                 </div>
                 <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-2">{t.emptyState.title}</h2>
                 <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto text-xs sm:text-sm leading-relaxed">
-                  {t.emptyState.description}
+                  {isRTL ? (
+                    <>
+                      <LocalizedBrand firstClassName="font-medium text-slate-600 dark:text-slate-400" aiClassName="text-[#2563EB] font-black" className="mx-1" /> آپ کے معاملے کو مختلف ماہرین کی نظر سے دیکھ کر آپ کو متوازن اور قابلِ عمل مشورہ دے گا۔
+                    </>
+                  ) : (
+                    t.emptyState.description
+                  )}
                 </p>
 
                 {!hasSeenTutorial && (

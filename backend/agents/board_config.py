@@ -46,7 +46,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "مستقبل کی ترقی، مہارتوں کے حصول اور روزگار کے طویل مدتی امکانات کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Career Mashir",
+            "name": "Career Musheer",
             "title": "Career Strategy & Employability",
             "description": "Long-term career growth, skill acquisition aur market employability ka jaiza leta hai."
         }
@@ -65,7 +65,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "آمدن کے استحکام، ماہانہ اخراجات، بچت اور مالیاتی خطرات کا باریک بینی سے جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Financial Mashir",
+            "name": "Financial Musheer",
             "title": "Cash Flow & Financial Health",
             "description": "Income stability, mahana kharche, savings buffer aur financial risk ka jaiza leta hai."
         }
@@ -103,7 +103,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "روزمرہ کے معمولات، کام کے حقیقی بوجھ اور عملی دشواریوں کا حقیقت پسندانہ جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Practical Mashir",
+            "name": "Practical Musheer",
             "title": "Implementation & Daily Realities",
             "description": "Daily execution, actual workload aur ground reality ko mad-e-nazar rakhta hai."
         }
@@ -122,7 +122,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "گھریلو اخراجات، خاندان کے تعاون اور عملی مجبوریوں کا غیر جانبدارانہ جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Family & Practical Mashir",
+            "name": "Family & Practical Musheer",
             "title": "Family Responsibilities & Constraints",
             "description": "Ghar ke kharche, family responsibilities aur practical constraints ka jaiza leta hai."
         }
@@ -179,7 +179,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "تمام ماہرین کی آراء کا غیر جانبدارانہ تجزیہ اور حتمی عملی لائحۂ عمل مرتب کرتا ہے۔"
         },
         "roman-ur": {
-            "name": "Lead Mashir",
+            "name": "Lead Musheer",
             "title": "Synthesis & Final Recommendation",
             "description": "Tamam mahireen ki aara ka balanced nichor aur final actionable mashwara tayar karta hai."
         }
@@ -198,7 +198,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "نصاب کی اہمیت، ڈگری کی افادیت، تعلیمی تقاضوں اور سیکھنے کے عمل کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Taleemi Mashir",
+            "name": "Taleemi Musheer",
             "title": "Education Pathways & Credentials",
             "description": "Degree ki value, curriculum rigor, prerequisites aur learning outcomes ka jaiza leta hai."
         }
@@ -236,7 +236,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "فری لانسنگ ریٹس، کلائنٹس کے ساتھ تعلقات، پروجیکٹ کے دائرہ کار اور پائیداری کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Freelance Mashir",
+            "name": "Freelance Musheer",
             "title": "Freelance Strategy & Client Health",
             "description": "Freelance rates, client diversification aur gig sustainability ka jaiza leta hai."
         }
@@ -255,7 +255,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "ذہنی دباؤ، تھکن کے خطرے، ذاتی صلاحیت اور کام و زندگی کے پائیدار توازن کا جائزہ لیتے ہیں۔"
         },
         "roman-ur": {
-            "name": "Work-Life Mashir",
+            "name": "Work-Life Musheer",
             "title": "Workload & Burnout Prevention",
             "description": "Burnout risk, mental wellbeing aur work-life balance ka jaiza leta hai."
         }
@@ -312,7 +312,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "صارفین کی ضرورت، فیچرز کی تصدیق اور پروڈکٹ حکمتِ عملی کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Product Mashir",
+            "name": "Product Musheer",
             "title": "Product-Market Fit & Roadmap",
             "description": "User needs, feature validation, prioritization aur product strategy ka jaiza leta hai."
         }
@@ -331,7 +331,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "انجینئرنگ کی پیچیدگی، آرکیٹیکچر کے انتخابات اور تکنیکی پائیداری کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Technology Mashir",
+            "name": "Technology Musheer",
             "title": "Technical Feasibility & Architecture",
             "description": "Engineering complexity, architecture choices aur tech debt ka jaiza leta hai."
         }
@@ -369,7 +369,7 @@ ROLE_METADATA: Dict[str, Dict[str, Any]] = {
             "description": "ماہانہ خرچ کی حد، بچت کے نظم و ضبط اور مالی وسائل کی درست تقسیم کا جائزہ لیتا ہے۔"
         },
         "roman-ur": {
-            "name": "Budget Mashir",
+            "name": "Budget Musheer",
             "title": "Monthly Budget & Cash Management",
             "description": "Monthly cash limits, savings discipline aur budget allocation ka jaiza leta hai."
         }
@@ -683,7 +683,7 @@ Mandatory report sections (English headings):
 - What Would Change This Recommendation
 """
 
-    return f"""You are the Lead Advisor (مرکزی مشیر / Lead Mashir) on Mashwara AI.
+    return f"""You are the Lead Advisor (مرکزی مشیر / Lead Musheer) on Mashwara AI.
 Your job is to synthesize the specialist deliberation into a definitive, balanced consultation report.
 
 CRITICAL VOTING RULE:
