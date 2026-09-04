@@ -529,21 +529,31 @@ export default function Dashboard() {
       />
 
       <div className="flex-1 flex flex-col relative z-10 h-screen w-full md:w-auto">
-        <nav className="h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between bg-slate-50/90 dark:bg-[#06080f]/90 backdrop-blur-xl shrink-0">
-          <div className="flex items-center gap-3">
+        <nav className="relative h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between bg-slate-50/90 dark:bg-[#06080f]/90 backdrop-blur-xl shrink-0">
+          <div className="flex items-center z-10">
             {!isSidebarOpen && (
-              <button onClick={() => setIsSidebarOpen(true)} className="p-2 -ml-2 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+              <button 
+                type="button"
+                onClick={() => setIsSidebarOpen(true)} 
+                aria-label="Open sidebar"
+                className="p-2 -ml-2 rtl:-mr-2 rtl:ml-0 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white rounded-lg hover:bg-slate-100 dark:hover:bg-white/5 transition-colors"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
               </button>
             )}
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-white shadow-md ring-1 ring-slate-900/5 flex items-center justify-center p-1">
-                <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
-              </div>
-              <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 hidden sm:block"></div>
-              <LocalizedBrand className="text-lg font-extrabold tracking-tight" />
-            </div>
           </div>
+
+          {/* Center-aligned Homepage Logo */}
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2.5 pointer-events-auto">
+            <div className="w-8 h-8 rounded-lg bg-white shadow-md ring-1 ring-slate-900/5 flex items-center justify-center p-1">
+              <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
+            </div>
+            <div className="w-px h-5 bg-slate-300 dark:bg-slate-700 hidden sm:block"></div>
+            <LocalizedBrand className="text-lg font-extrabold tracking-tight" />
+          </div>
+
+          {/* Spacer to balance flex row */}
+          <div className="w-8 z-10" aria-hidden="true" />
         </nav>
 
         <main className={`flex-1 ${messages.length === 0 ? "overflow-hidden flex flex-col" : "overflow-y-auto"} p-4 sm:p-6 custom-scrollbar relative`}>
