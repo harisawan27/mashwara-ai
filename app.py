@@ -41,6 +41,20 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("boardroom_gradio")
 
 # ---------------------------------------------------------------------------
+# ZeroGPU Compatibility Hook (Hugging Face Spaces)
+# ---------------------------------------------------------------------------
+try:
+    import spaces
+
+    @spaces.GPU
+    def _zerogpu_compat():
+        """Module-level ZeroGPU detection target for Hugging Face Spaces."""
+        return True
+except (ImportError, AttributeError):
+    def _zerogpu_compat():
+        return True
+
+# ---------------------------------------------------------------------------
 # Custom CSS for Executive Theme
 # ---------------------------------------------------------------------------
 CUSTOM_CSS = """
@@ -737,44 +751,30 @@ def create_gradio_app() -> gr.Blocks:
 # ---------------------------------------------------------------------------
 # App Initialization & Mounting
 # ---------------------------------------------------------------------------
-demo_app = create_gradio_app()
+build_app = create_gradio_app
 
-# Mount Gradio onto the FastAPI application at root /
-# This ensures that:
-# 1. Visiting the Hugging Face Space in a browser renders the Gradio UI
-# 2. API clients can call /meeting, /chat/stream, /health, /docs on the same host
-app = gr.mount_gradio_app(fastapi_app, demo_app, path="/")
+app = fastapi_app
+demo = build_app()
+
+app = gr.mount_gradio_app(
+    app,
+    demo,
+    path="/"
+)
 
 if __name__ == "__main__":
     import uvicorn
-    import socket
 
-    # On Hugging Face Spaces, port 7860 is the primary public entrypoint.
-    # Gradio 5.x internally reserves port 7861 for its SSR Node server, so 7861 must NEVER be used for Uvicorn.
-    def get_server_port() -> int:
-        env_port = os.getenv("PORT")
-        try:
-            preferred = int(env_port) if env_port else 7860
-        except (ValueError, TypeError):
-            preferred = 7860
+    # ZeroGPU registration/detection must happen before blocking uvicorn.run()
+    try:
+        import spaces.zero
+        spaces.zero.startup()
+    except Exception as exc:
+        logger.warning("ZeroGPU startup registration warning: %s", exc)
 
-        # If environment passed 7861, force 7860 (Hugging Face public port)
-        if preferred == 7861:
-            preferred = 7860
-
-        # Check candidate ports, prioritizing 7860 and strictly avoiding 7861
-        candidates = [preferred, 7860, 7862, 7863, 8000]
-        candidates = [p for p in candidates if p != 7861]
-        for p in candidates:
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-                    s.bind(("0.0.0.0", p))
-                    return p
-                except OSError:
-                    continue
-        return 7860
-
-    port = get_server_port()
-    logger.info(f"🏛️ Starting Mashwara AI Unified Gradio + FastAPI Server on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port, reload=False)
+    logger.info("🏛️ Starting Mashwara AI Unified Gradio + FastAPI Server on port 7860...")
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=7860,
+    )
