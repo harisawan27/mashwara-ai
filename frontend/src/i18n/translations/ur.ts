@@ -21,8 +21,8 @@ export const ur: TranslationSchema = {
     complete: "مکمل",
   },
   brand: {
-    name: "Mashwara AI",
-    firstPart: "Mashwara",
+    name: "AI مشورہ",
+    firstPart: "مشورہ",
     secondPart: "AI",
     tagline: "اہم فیصلوں میں آپ کا بااعتماد مشیر",
     badge: "مصنوعی ذہانت پر مبنی مشاورتی مجلس",
@@ -54,7 +54,7 @@ export const ur: TranslationSchema = {
     reqNotMet: "برائے مہربانی پاس ورڈ کی تمام شرائط پوری کریں۔",
   },
   guest: {
-    bannerNotice: "آپ مہمان کے طور پر Mashwara AI استعمال کر رہے ہیں۔ آپ کی گفتگو محفوظ نہیں ہوگی۔",
+    bannerNotice: "آپ مہمان کے طور پر AI مشورہ استعمال کر رہے ہیں۔ آپ کی گفتگو محفوظ نہیں ہوگی۔",
     bannerSecondary: "اپنے مشورے اور گفتگو محفوظ رکھنے کے لیے سائن اِن کریں۔",
     signInCta: "سائن اِن کریں",
     sidebarHistoryPrompt: "گفتگو محفوظ کرنے کے لیے سائن اِن کریں",
@@ -109,7 +109,7 @@ export const ur: TranslationSchema = {
       comingSoon: "جلد دستیاب ہوگا",
     },
     signOutModalTitle: "سائن آؤٹ کی تصدیق",
-    signOutModalDesc: "کیا آپ واقعی Mashwara AI سے لاگ آؤٹ ہونا چاہتے ہیں؟",
+    signOutModalDesc: "کیا آپ واقعی AI مشورہ سے لاگ آؤٹ ہونا چاہتے ہیں؟",
     deleteModalTitle: "اکاؤنٹ حذف کرنے کی تصدیق",
     deleteWarning1: "خبردار: یہ عمل واپس نہیں لیا جا سکتا۔",
     deleteWarning2: "اس سے آپ کا تمام ڈیٹا، محفوظ شدہ مشورے اور سابقہ گفتگو ہمیشہ کے لیے ضائع ہو جائیں گے۔",
@@ -134,7 +134,7 @@ export const ur: TranslationSchema = {
   },
   emptyState: {
     title: "اپنا مسئلہ یا فیصلہ بتائیں",
-    description: "Mashwara AI آپ کے معاملے کو مختلف ماہرین کی نظر سے دیکھ کر آپ کو متوازن اور قابلِ عمل مشورہ دے گا۔",
+    description: "AI مشورہ آپ کے معاملے کو مختلف ماہرین کی نظر سے دیکھ کر آپ کو متوازن اور قابلِ عمل مشورہ دے گا۔",
     tutorialButton: "ایک منٹ میں سمجھیں (رہنمائی)",
     suggestedPrompts: [
       "کیا مجھے یہ نئی نوکری قبول کرنی چاہیے؟",
@@ -169,7 +169,7 @@ export const ur: TranslationSchema = {
   tutorial: {
     slides: [
       {
-        title: "Mashwara AI میں خوش آمدید",
+        title: "AI مشورہ میں خوش آمدید",
         description: "آپ کا ذاتی مشیر اور ماہرین کی مجلس ایک ہی جگہ پر۔ مختلف ماہرانہ زاویوں سے سوچیں اور بہتر فیصلے کریں۔",
         icon: "🏛️",
       },
@@ -264,5 +264,6 @@ export const ur: TranslationSchema = {
     mahireenKiRaaye: "ماہرین کی رائے",
     mashwaraReport: "مشورہ رپورٹ",
     shareFailed: "شیئر لنک نہیں بن سکا۔ دوبارہ کوشش کریں۔",
+    pdfExportError: "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔",
   },
 };

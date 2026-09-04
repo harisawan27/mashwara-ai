@@ -190,5 +190,6 @@ export interface TranslationSchema {
     mahireenKiRaaye: string;
     mashwaraReport: string;
     shareFailed: string;
+    pdfExportError?: string;
   };
 }

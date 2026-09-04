@@ -10,8 +10,10 @@ import axios from "axios";
 // ---------------------------------------------------------------------------
 // Axios instance (for non-streaming calls like health check)
 // ---------------------------------------------------------------------------
+const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 const apiClient = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://localhost:8000",
+  baseURL: API_BASE,
   timeout: 120_000,
   headers: { "Content-Type": "application/json" },
 });
@@ -67,7 +69,7 @@ export async function streamChat(
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const response = await fetch(
-      `${import.meta.env.VITE_API_URL || "http://localhost:8000"}/chat/stream`,
+      `${API_BASE}/chat/stream`,
       {
         method: "POST",
         headers,

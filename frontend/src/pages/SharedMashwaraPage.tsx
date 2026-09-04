@@ -79,6 +79,7 @@ export default function SharedMashwaraPage() {
   const isUrdu = reportLang === "ur";
 
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const handleCopyLink = () => {
     const fullUrl = `${window.location.origin}/m/${shareId}`;
@@ -90,12 +91,25 @@ export default function SharedMashwaraPage() {
   const handleExportPdf = async () => {
     if (isExportingPdf) return;
     setIsExportingPdf(true);
+    setExportError(null);
     try {
       await exportMashwaraPdf(data?.decision_title || "Mashwara", {
         elementId: "mashwara-shared-export-content",
+        onError: (err) => {
+          console.error("[PDF Export Technical Error]", err);
+        },
       });
-    } catch (err) {
-      console.error("Failed to export PDF:", err);
+    } catch (err: any) {
+      console.error("[PDF Export Failed]", err);
+      const fallbackMsg =
+        reportLang === "ur"
+          ? "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔"
+          : reportLang === "en"
+          ? "PDF couldn't be generated. Please try again."
+          : "PDF export nahi ho saka. Dobara try karein.";
+      const msg = t.share.pdfExportError || fallbackMsg;
+      setExportError(msg);
+      setTimeout(() => setExportError(null), 5000);
     } finally {
       setIsExportingPdf(false);
     }
@@ -185,10 +199,7 @@ export default function SharedMashwaraPage() {
           </div>
           <div className="min-w-0">
             <span className="text-xs font-bold text-slate-900 dark:text-white block leading-tight">
-              Mashwara AI
-            </span>
-            <span className="text-[10px] text-slate-500 block truncate">
-              مشورہ اے آئی
+              {reportLang === "ur" ? "AI مشورہ" : "Mashwara AI"}
             </span>
           </div>
         </Link>
@@ -345,6 +356,14 @@ export default function SharedMashwaraPage() {
           language={reportLang}
         />
       </div>
+
+      {/* Localized Error Toast if PDF export fails */}
+      {exportError && (
+        <div className="fixed bottom-6 right-6 z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
+          <span className="text-base">⚠️</span>
+          <span>{exportError}</span>
+        </div>
+      )}
     </div>
   );
 }

@@ -76,6 +76,7 @@ export default function MeetingCanvas({
   const [isGuestConfirmOpen, setIsGuestConfirmOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
@@ -148,12 +149,25 @@ export default function MeetingCanvas({
   const handleExportPdf = async () => {
     if (isExportingPdf) return;
     setIsExportingPdf(true);
+    setExportError(null);
     try {
       await exportMashwaraPdf(displayDecisionTitle, {
         elementId: "mashwara-canvas-export",
+        onError: (err) => {
+          console.error("[PDF Export Technical Error]", err);
+        },
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to export PDF:", err);
+      const fallbackMsg =
+        language === "ur"
+          ? "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔"
+          : language === "en"
+          ? "PDF couldn't be generated. Please try again."
+          : "PDF export nahi ho saka. Dobara try karein.";
+      const msg = t.share?.pdfExportError || fallbackMsg;
+      setExportError(msg);
+      setTimeout(() => setExportError(null), 5000);
     } finally {
       setIsExportingPdf(false);
     }
@@ -431,6 +445,14 @@ export default function MeetingCanvas({
           language={language}
         />
       </div>
+
+      {/* Localized Error Toast if PDF export fails */}
+      {exportError && (
+        <div className="fixed bottom-6 right-6 z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
+          <span className="text-base">⚠️</span>
+          <span>{exportError}</span>
+        </div>
+      )}
     </div>
   );
 }

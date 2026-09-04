@@ -264,5 +264,6 @@ export const en: TranslationSchema = {
     mahireenKiRaaye: "Expert Perspectives",
     mashwaraReport: "Mashwara Report",
     shareFailed: "Could not create share link. Please try again.",
+    pdfExportError: "PDF couldn't be generated. Please try again.",
   },
 };

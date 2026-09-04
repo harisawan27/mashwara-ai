@@ -12,8 +12,12 @@
  *    with a clear user notification. NO silent catch-and-continue data loss.
  * 5. Isolated onclone rendering: Export DOM is kept invisible on screen at all times (no flash),
  *    while html2canvas's internal clone is made visible at normal coordinates for 100% accurate layout.
- * 6. Webfont synchronization: `await document.fonts.ready` guarantees Urdu Nastaliq renders properly.
- * 7. Direct file download: `mashwara-<sanitized-title>.pdf` via JavaScript.
+ * 6. Native Color Sanitization: Converts modern Tailwind v4 oklch() / color-mix() colors
+ *    into standard RGB strings via the browser's 2D canvas engine to prevent parser crashes.
+ * 7. Two-Tier Capture with Native SVG Fallback:
+ *    - Tier 1: High-fidelity html2canvas with isolated clone & color sanitization.
+ *    - Tier 2: Native SVG <foreignObject> rasterization for 100% CSS color compatibility.
+ * 8. Direct file download: `mashwara-<sanitized-title>.pdf` via JavaScript.
  */
 
 import jsPDF from "jspdf";
@@ -24,6 +28,198 @@ export interface ExportPdfOptions {
   element?: HTMLElement | null;
   onProgress?: (stage: "preparing" | "capturing" | "assembling" | "saving") => void;
   onError?: (error: Error) => void;
+}
+
+// Reusable offscreen canvas for converting any CSS color (oklch, color-mix, etc.) to safe rgb
+let colorCanvas: HTMLCanvasElement | null = null;
+let colorCtx: CanvasRenderingContext2D | null = null;
+
+function toSafeRgb(raw: string): string {
+  if (!raw || raw === "transparent" || raw === "inherit" || raw === "initial" || raw === "currentColor") {
+    return raw;
+  }
+  if (!raw.includes("oklch") && !raw.includes("color-mix") && !raw.includes("lab") && !raw.includes("lch")) {
+    return raw;
+  }
+  if (typeof document === "undefined") return "#ffffff";
+  if (!colorCanvas) {
+    colorCanvas = document.createElement("canvas");
+    colorCanvas.width = 1;
+    colorCanvas.height = 1;
+    colorCtx = colorCanvas.getContext("2d", { willReadFrequently: true });
+  }
+  if (!colorCtx) return "#ffffff";
+  try {
+    colorCtx.fillStyle = "#ffffff";
+    colorCtx.fillStyle = raw;
+    return colorCtx.fillStyle; // Native 2D canvas parser returns "#rrggbb" or "rgba(...)"
+  } catch {
+    return "#ffffff";
+  }
+}
+
+/**
+ * Sanitizes the cloned document for html2canvas:
+ * - Makes the export container fully visible at origin
+ * - Converts modern oklch / color-mix declarations to standard RGB
+ * - Disables transitions and animations for instant static rasterization
+ */
+function sanitizeClonedDom(clonedDoc: Document, targetContainerId: string, sectionId: string) {
+  // 1. Position and display the export container at normal origin coordinates
+  const clonedContainer =
+    clonedDoc.getElementById(targetContainerId) ||
+    clonedDoc.querySelector<HTMLElement>("[data-mashwara-export='true']");
+  if (clonedContainer) {
+    clonedContainer.style.opacity = "1";
+    clonedContainer.style.visibility = "visible";
+    clonedContainer.style.position = "absolute";
+    clonedContainer.style.top = "0";
+    clonedContainer.style.left = "0";
+    clonedContainer.style.zIndex = "1000";
+    clonedContainer.style.transform = "none";
+    clonedContainer.style.pointerEvents = "auto";
+    clonedContainer.style.maxHeight = "none";
+    clonedContainer.style.overflow = "visible";
+    clonedContainer.style.height = "auto";
+    clonedContainer.style.backgroundColor = "#ffffff";
+  }
+
+  // 2. Ensure the target section and all sections in the clone are visible
+  const clonedEl = clonedDoc.querySelector<HTMLElement>(`[data-pdf-section="${sectionId}"]`);
+  if (clonedEl) {
+    clonedEl.style.opacity = "1";
+    clonedEl.style.visibility = "visible";
+  }
+  const allSections = clonedDoc.querySelectorAll<HTMLElement>("[data-pdf-section]");
+  allSections.forEach((s) => {
+    s.style.opacity = "1";
+    s.style.visibility = "visible";
+  });
+
+  // 3. Sanitize all <style> elements: replace oklch(...) and color-mix(...) with RGB equivalents
+  clonedDoc.querySelectorAll("style").forEach((styleEl) => {
+    if (styleEl.textContent && (styleEl.textContent.includes("oklch") || styleEl.textContent.includes("color-mix"))) {
+      try {
+        styleEl.textContent = styleEl.textContent
+          .replace(/oklch\([^)]+\)/gi, (m) => toSafeRgb(m))
+          .replace(/color-mix\([^)]+\)/gi, (m) => toSafeRgb(m));
+      } catch (e) {
+        console.warn("[PDF Export] Style tag sanitize warning:", e);
+      }
+    }
+  });
+
+  // 4. Sanitize all elements: convert computed modern color properties to explicit safe RGB inline styles
+  const allCloned = clonedDoc.querySelectorAll<HTMLElement>("*");
+  const win = clonedDoc.defaultView || window;
+  const colorProps = [
+    "color",
+    "backgroundColor",
+    "borderColor",
+    "borderTopColor",
+    "borderRightColor",
+    "borderBottomColor",
+    "borderLeftColor",
+    "outlineColor",
+    "fill",
+    "stroke",
+  ] as const;
+
+  allCloned.forEach((node) => {
+    node.style.animation = "none";
+    node.style.transition = "none";
+
+    try {
+      const comp = win.getComputedStyle(node);
+      for (const prop of colorProps) {
+        const val = (comp as any)[prop];
+        if (val && (val.includes("oklch") || val.includes("color-mix"))) {
+          (node.style as any)[prop] = toSafeRgb(val);
+        }
+      }
+    } catch {
+      // Ignore if element is detached
+    }
+  });
+}
+
+/**
+ * Fallback rasterizer: Uses the browser's native SVG <foreignObject> engine
+ * which natively parses and renders any CSS color function (oklch, color-mix, gradients).
+ */
+async function captureFallbackSvg(
+  el: HTMLElement,
+  sectionId: string
+): Promise<HTMLCanvasElement> {
+  console.log(`[PDF Export] Rendering native SVG fallback for section "${sectionId}"...`);
+  const rect = el.getBoundingClientRect();
+  const width = Math.ceil(rect.width || 820);
+  const height = Math.ceil(rect.height || 400);
+
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.style.width = `${width}px`;
+  clone.style.height = "auto";
+  clone.style.margin = "0";
+  clone.style.transform = "none";
+  clone.style.opacity = "1";
+  clone.style.visibility = "visible";
+  clone.style.backgroundColor = "#ffffff";
+
+  // Collect active stylesheets
+  let cssText = "";
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      for (const rule of Array.from(sheet.cssRules)) {
+        cssText += rule.cssText + "\n";
+      }
+    } catch {
+      // Ignore cross-origin rules
+    }
+  }
+
+  const serializer = new XMLSerializer();
+  const serialized = serializer.serializeToString(clone);
+
+  const svgData = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${width * 2}" height="${height * 2}" viewBox="0 0 ${width} ${height}">
+      <style>
+        ${cssText}
+        * { animation: none !important; transition: none !important; }
+      </style>
+      <foreignObject width="100%" height="100%">
+        <div xmlns="http://www.w3.org/1999/xhtml" style="background-color: #ffffff; width: ${width}px; min-height: ${height}px;">
+          ${serialized}
+        </div>
+      </foreignObject>
+    </svg>
+  `;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width * 2;
+  canvas.height = height * 2;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Could not acquire 2D canvas context");
+
+  const img = new Image();
+  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(svgBlob);
+
+  await new Promise<void>((resolve, reject) => {
+    img.onload = () => {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+    img.onerror = (err) => {
+      URL.revokeObjectURL(url);
+      reject(err);
+    };
+    img.src = url;
+  });
+
+  return canvas;
 }
 
 export async function exportMashwaraPdf(
@@ -38,14 +234,14 @@ export async function exportMashwaraPdf(
 
   if (!targetElement) {
     const notFoundErr = new Error("Mashwara PDF export container element was not found in the DOM.");
-    console.error(notFoundErr);
+    console.error("[PDF Export] Container not found:", notFoundErr);
     options?.onError?.(notFoundErr);
     throw notFoundErr;
   }
 
   options?.onProgress?.("preparing");
 
-  // Ensure all web fonts (including self-hosted Noto Nastaliq Urdu) are fully loaded
+  // Ensure all web fonts (including Gulzar and Noto Nastaliq Urdu) are fully loaded
   if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
     try {
       await document.fonts.ready;
@@ -61,10 +257,9 @@ export async function exportMashwaraPdf(
 
   const targets = sectionElements.length > 0 ? sectionElements : [targetElement];
   const expectedCount = targets.length;
+  const sectionIds = targets.map((t) => t.getAttribute("data-pdf-section") || "unnamed");
 
-  console.log(`[PDF Export] Expected ${expectedCount} semantic sections for export:`,
-    targets.map((t) => t.getAttribute("data-pdf-section") || "unnamed")
-  );
+  console.log(`[PDF Export] Expected section IDs (${expectedCount}):`, sectionIds);
 
   options?.onProgress?.("capturing");
 
@@ -84,69 +279,64 @@ export async function exportMashwaraPdf(
 
   const targetContainerId = targetElement.id || "mashwara-export-container";
 
-  // Capture helper with bounded retry and DOM clone visibility
+  // Capture helper with bounded retry, sanitized onclone, and native fallback
   async function captureSection(el: HTMLElement, sectionId: string): Promise<HTMLCanvasElement> {
-    const doCapture = async () => {
+    const rect = el.getBoundingClientRect();
+    const width = Math.ceil(rect.width || 820);
+    const height = Math.ceil(rect.height || 400);
+    console.log(`[PDF Export] Capturing section "${sectionId}" (${width}x${height})...`);
+
+    const doPrimaryCapture = async () => {
       return await html2canvas(el, {
-        scale: 2, // 2x resolution for crisp text & badges
+        scale: 2, // 2x resolution for crisp Nastaliq text & badges
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
         windowWidth: 820,
         onclone: (clonedDoc: Document) => {
-          // In the private html2canvas clone, make the export container fully visible at origin
-          const clonedContainer =
-            clonedDoc.getElementById(targetContainerId) ||
-            clonedDoc.querySelector<HTMLElement>("[data-mashwara-export='true']");
-          if (clonedContainer) {
-            clonedContainer.style.opacity = "1";
-            clonedContainer.style.visibility = "visible";
-            clonedContainer.style.position = "absolute";
-            clonedContainer.style.top = "0";
-            clonedContainer.style.left = "0";
-            clonedContainer.style.zIndex = "1000";
-            clonedContainer.style.transform = "none";
-            clonedContainer.style.pointerEvents = "auto";
-            clonedContainer.style.maxHeight = "none";
-            clonedContainer.style.overflow = "visible";
-            clonedContainer.style.height = "auto";
-          }
-
-          // Ensure the target section and all sibling sections in the clone are fully visible
-          const clonedEl = clonedDoc.querySelector<HTMLElement>(`[data-pdf-section="${sectionId}"]`);
-          if (clonedEl) {
-            clonedEl.style.opacity = "1";
-            clonedEl.style.visibility = "visible";
-          }
-          const allClonedSections = clonedDoc.querySelectorAll<HTMLElement>("[data-pdf-section]");
-          allClonedSections.forEach((s) => {
-            s.style.opacity = "1";
-            s.style.visibility = "visible";
-          });
+          sanitizeClonedDom(clonedDoc, targetContainerId, sectionId);
         },
       });
     };
 
     try {
-      const canvas = await doCapture();
+      const canvas = await doPrimaryCapture();
       if (!canvas || canvas.width === 0 || canvas.height === 0) {
-        throw new Error(`Empty canvas produced for section: ${sectionId}`);
+        throw new Error(`Empty canvas produced for section "${sectionId}"`);
       }
       return canvas;
-    } catch (firstErr) {
-      console.warn(`[PDF Export] Retrying capture for semantic section "${sectionId}" after DOM stabilization...`, firstErr);
-      // Wait for next frame and short delay to stabilize
-      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 150)));
-      try {
-        const retryCanvas = await doCapture();
-        if (!retryCanvas || retryCanvas.width === 0 || retryCanvas.height === 0) {
-          throw new Error(`Empty canvas on retry for section: ${sectionId}`);
-        }
-        return retryCanvas;
-      } catch (secondErr) {
-        console.error(`[PDF Export] FATAL: Section "${sectionId}" capture failed. Aborting to avoid data loss.`);
-        throw new Error(`Critical consultation section "${sectionId}" could not be captured.`);
+    } catch (firstErr: any) {
+      console.warn(`[PDF Export] First attempt failure for "${sectionId}": ${firstErr.message || firstErr}`);
+
+      // Stabilize fonts & DOM
+      if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch {}
       }
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 150)));
+
+      console.warn(`[PDF Export] Retrying with sanitized isolated fallback for "${sectionId}"...`);
+      try {
+        const retryCanvas = await doPrimaryCapture();
+        if (retryCanvas && retryCanvas.width > 0 && retryCanvas.height > 0) {
+          return retryCanvas;
+        }
+      } catch (retryErr: any) {
+        console.warn(`[PDF Export] Primary retry failed for "${sectionId}": ${retryErr.message || retryErr}, attempting native SVG fallback...`);
+      }
+
+      // Tier 2 Fallback: Browser native SVG renderer
+      try {
+        const svgCanvas = await captureFallbackSvg(el, sectionId);
+        if (svgCanvas && svgCanvas.width > 0 && svgCanvas.height > 0) {
+          console.log(`[PDF Export] Successfully captured "${sectionId}" via native fallback.`);
+          return svgCanvas;
+        }
+      } catch (svgErr: any) {
+        console.error(`[PDF Export] Retry failure for "${sectionId}": ${svgErr.message || svgErr}`);
+      }
+
+      console.error(`[PDF Export] FATAL: Section "${sectionId}" capture failed. Aborting to avoid data loss.`);
+      throw new Error(`Critical consultation section "${sectionId}" could not be captured.`);
     }
   }
 
@@ -162,7 +352,8 @@ export async function exportMashwaraPdf(
       capturedSections.push({ sectionId, canvas, heightPt });
     } catch (err: any) {
       const exportError = new Error(`PDF export failed at section "${sectionId}": ${err.message || err}`);
-      console.error(exportError);
+      console.error("[PDF Export] Section capture error:", exportError);
+      console.error(`[PDF Export] Save not reached: export aborted due to capture failure on section "${sectionId}"`);
       options?.onError?.(exportError);
       throw exportError;
     }
@@ -173,7 +364,8 @@ export async function exportMashwaraPdf(
     const mismatchErr = new Error(
       `PDF export verification failed: expected ${expectedCount} sections, captured ${capturedSections.length}. Download aborted to protect report integrity.`
     );
-    console.error(mismatchErr);
+    console.error("[PDF Export] Verification mismatch:", mismatchErr);
+    console.error("[PDF Export] Save not reached: export aborted due to section count mismatch");
     options?.onError?.(mismatchErr);
     throw mismatchErr;
   }
@@ -196,7 +388,6 @@ export async function exportMashwaraPdf(
 
     // Standard case: Section fits on a single page
     if (item.heightPt <= printableHeight) {
-      // If adding this section exceeds page height, start a new page
       if (currentY + item.heightPt > pdfHeight - margin && currentY > margin) {
         pdf.addPage();
         currentY = margin;
@@ -221,7 +412,6 @@ export async function exportMashwaraPdf(
         const remainingPx = item.canvas.height - yOffsetPx;
         let thisSliceHeightPx = Math.min(nominalSliceHeightPx, remainingPx);
 
-        // If not the final chunk, find clean whitespace between text lines
         if (remainingPx > nominalSliceHeightPx) {
           thisSliceHeightPx = findCleanSlicePoint(item.canvas, yOffsetPx, nominalSliceHeightPx);
         }
@@ -255,12 +445,14 @@ export async function exportMashwaraPdf(
 
   // Add subtle, elegant page numbers to each page
   const totalPages = pdf.getNumberOfPages();
+  console.log(`[PDF Export] Assembly status: assembling ${totalPages} A4 pages...`);
+
   for (let p = 1; p <= totalPages; p++) {
     pdf.setPage(p);
     pdf.setFontSize(7.5);
     pdf.setTextColor(148, 163, 184); // slate-400
     pdf.text(
-      `Mashwara AI — مشورہ اے آئی  •  Page ${p} of ${totalPages}`,
+      `Mashwara AI  •  Page ${p} of ${totalPages}`,
       pdfWidth / 2,
       pdfHeight - 12,
       { align: "center" }
@@ -271,7 +463,7 @@ export async function exportMashwaraPdf(
 
   const sanitizedTitle = sanitizeFilename(title);
   pdf.save(`mashwara-${sanitizedTitle}.pdf`);
-  console.log(`[PDF Export] Successfully generated and downloaded: mashwara-${sanitizedTitle}.pdf (${totalPages} pages)`);
+  console.log(`[PDF Export] Save reached: mashwara-${sanitizedTitle}.pdf (${totalPages} pages)`);
 }
 
 /**

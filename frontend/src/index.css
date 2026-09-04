@@ -369,3 +369,66 @@ html.dark .dot-pattern {
     display: block !important;
   }
 }
+
+/* -------------------------------------------------------------------------
+   Urdu Typography: Gulzar Traditional Nastaliq
+   ------------------------------------------------------------------------- */
+@font-face {
+  font-family: 'Gulzar';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Gulzar-Regular.ttf') format('truetype');
+}
+
+:root {
+  --font-urdu: 'Gulzar', 'Noto Nastaliq Urdu', serif;
+}
+
+html[lang="ur"],
+.lang-ur,
+[dir="rtl"],
+.font-urdu {
+  font-family: var(--font-urdu);
+  line-height: 2.1;
+  letter-spacing: normal;
+}
+
+/* Headings in Urdu */
+html[lang="ur"] h1,
+html[lang="ur"] h2,
+html[lang="ur"] h3,
+html[lang="ur"] h4,
+.lang-ur h1,
+.lang-ur h2,
+.lang-ur h3,
+.lang-ur h4 {
+  font-family: var(--font-urdu);
+  line-height: 1.85;
+}
+
+/* Ensure buttons and badges have sufficient clearance for Nastaliq descenders */
+html[lang="ur"] button,
+.lang-ur button,
+[dir="rtl"] button {
+  min-height: 2.5rem;
+}
+
+/* Exclusions: Passwords, emails, URLs, code, and technical IDs must remain monospace/sans-serif */
+html[lang="ur"] input[type="password"],
+html[lang="ur"] input[type="email"],
+html[lang="ur"] input[dir="ltr"],
+html[lang="ur"] code,
+html[lang="ur"] pre,
+html[lang="ur"] .font-mono,
+.lang-ur input[type="password"],
+.lang-ur input[type="email"],
+.lang-ur input[dir="ltr"],
+.lang-ur code,
+.lang-ur pre,
+.lang-ur .font-mono {
+  font-family: var(--font-sans) !important;
+  line-height: normal !important;
+  direction: ltr !important;
+}
+
