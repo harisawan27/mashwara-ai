@@ -209,6 +209,10 @@ class PublicSharedMashwaraResponse(BaseModel):
     snapshot: Dict[str, Any]
     created_at: str
 
+def derive_session_title(text: str) -> str:
+    cleaned = (text or "").strip()
+    return (cleaned[:35] + "...") if len(cleaned) > 35 else (cleaned or "New Brainstorming Session")
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -559,7 +563,7 @@ async def send_standard_message(
     
     # Update session
     if session.title == "New Brainstorming Session":
-        session.title = body.message[:30] + "..." if len(body.message) > 30 else body.message
+        session.title = derive_session_title(body.message)
     session.updated_at = datetime.datetime.utcnow()
 
     # Call Gemini (Chief of Staff)
@@ -671,14 +675,14 @@ async def stream_standard_message(
             session = ChatSession(
                 id=body.session_id or str(uuid.uuid4()),
                 user_id=current_user.id,
-                title=body.message[:30] + "..." if len(body.message) > 30 else body.message
+                title=derive_session_title(body.message)
             )
             db.add(session)
             await db.commit()
             await db.refresh(session)
         else:
             if session.title == "New Brainstorming Session":
-                session.title = body.message[:30] + "..." if len(body.message) > 30 else body.message
+                session.title = derive_session_title(body.message)
             session.updated_at = datetime.datetime.utcnow()
             await db.commit()
 
@@ -810,6 +814,8 @@ async def chat_stream(
             result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
             session = result.scalars().first()
             if session:
+                if session.title == "New Brainstorming Session":
+                    session.title = derive_session_title(body.prompt)
                 session.updated_at = datetime.datetime.utcnow()
                 user_msg = ChatMessage(session_id=session.id, role="user", content=body.prompt)
                 db.add(user_msg)

@@ -210,14 +210,14 @@ export default function SharedMashwaraPage() {
                 <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
-                <span>{t.share.linkCopied}</span>
+                <span className="hidden sm:inline">{t.share.linkCopied}</span>
               </>
             ) : (
               <>
                 <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                 </svg>
-                <span>{t.share.copyLink}</span>
+                <span className="hidden sm:inline">{t.share.copyLink}</span>
               </>
             )}
           </button>
@@ -235,14 +235,14 @@ export default function SharedMashwaraPage() {
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span>{t.share.exportingPdf}</span>
+                <span className="hidden sm:inline">{t.share.exportingPdf}</span>
               </>
             ) : (
               <>
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-                <span>{t.share.exportPdf}</span>
+                <span className="hidden sm:inline">{t.share.exportPdf}</span>
               </>
             )}
           </button>
@@ -260,10 +260,10 @@ export default function SharedMashwaraPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="flex gap-2 border-b border-slate-200 dark:border-white/10 mb-6">
+        <div className="flex gap-2 border-b border-slate-200 dark:border-white/10 mb-6 overflow-x-auto custom-scrollbar">
           <button
             onClick={() => setActiveTab("report")}
-            className={`py-3 px-4 text-xs font-bold transition-all relative ${
+            className={`py-3 px-4 text-xs font-bold transition-all relative shrink-0 whitespace-nowrap ${
               activeTab === "report"
                 ? "text-blue-600 dark:text-blue-400"
                 : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
@@ -277,7 +277,7 @@ export default function SharedMashwaraPage() {
 
           <button
             onClick={() => setActiveTab("deliberation")}
-            className={`py-3 px-4 text-xs font-bold transition-all relative ${
+            className={`py-3 px-4 text-xs font-bold transition-all relative shrink-0 whitespace-nowrap ${
               activeTab === "deliberation"
                 ? "text-blue-600 dark:text-blue-400"
                 : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
@@ -319,12 +319,20 @@ export default function SharedMashwaraPage() {
         </footer>
       </main>
 
-      {/* ── Off-screen DOM Container for High-Fidelity PDF Generation ── */}
+      {/* ── Off-screen DOM Container for High-Fidelity PDF Generation (Never flashes onscreen) ── */}
       <div
         id="mashwara-shared-export-content"
         data-mashwara-export="true"
-        className="fixed -left-[9999px] top-0 w-[820px] bg-white text-slate-900 pointer-events-none overflow-visible"
-        style={{ zIndex: -100 }}
+        className="pointer-events-none"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "820px",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -9999,
+        }}
         aria-hidden="true"
       >
         <MashwaraResultView

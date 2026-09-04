@@ -404,12 +404,20 @@ export default function MeetingCanvas({
         </div>
       )}
 
-      {/* ── Off-screen DOM Container for High-Fidelity PDF Generation ── */}
+      {/* ── Off-screen DOM Container for High-Fidelity PDF Generation (Never flashes onscreen) ── */}
       <div
         id="mashwara-canvas-export"
         data-mashwara-export="true"
-        className="fixed -left-[9999px] top-0 w-[820px] bg-white text-slate-900 pointer-events-none overflow-visible"
-        style={{ zIndex: -100 }}
+        className="pointer-events-none"
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 0,
+          width: "820px",
+          opacity: 0,
+          pointerEvents: "none",
+          zIndex: -9999,
+        }}
         aria-hidden="true"
       >
         <MashwaraResultView

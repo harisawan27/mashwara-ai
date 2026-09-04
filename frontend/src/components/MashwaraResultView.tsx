@@ -8,6 +8,7 @@
  * Implements semantic HTML for accessibility and crawler/AI readability.
  */
 
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
@@ -59,6 +60,38 @@ function token(key: string | undefined, t: any) {
     glow: "shadow-amber-500/20",
     ring: "stroke-amber-500",
   };
+}
+
+/**
+ * Subdivides long analysis text into smaller semantic blocks
+ * to allow natural multi-page pagination before falling back to canvas slicing.
+ */
+function splitAnalysisIntoBlocks(text: string, maxChunkLen: number = 750): string[] {
+  if (!text || text.length <= maxChunkLen) {
+    return [text || ""];
+  }
+
+  const rawSections = text.split(/(?=\n#{1,4}\s)|\n\n+/);
+  const blocks: string[] = [];
+  let currentChunk = "";
+
+  for (const part of rawSections) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+
+    if (currentChunk.length + trimmed.length > maxChunkLen && currentChunk.length > 0) {
+      blocks.push(currentChunk.trim());
+      currentChunk = trimmed;
+    } else {
+      currentChunk = currentChunk ? `${currentChunk}\n\n${trimmed}` : trimmed;
+    }
+  }
+
+  if (currentChunk.trim()) {
+    blocks.push(currentChunk.trim());
+  }
+
+  return blocks.length > 0 ? blocks : [text];
 }
 
 function ConfidenceRing({ value, colorClass }: { value: number; colorClass: string }) {
@@ -599,7 +632,7 @@ export default function MashwaraResultView({
       >
         {/* 1. Header: Mashwara AI */}
         <header
-          data-pdf-section="true"
+          data-pdf-section="header"
           className="flex items-center justify-between gap-4 p-5 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
         >
           <div className="flex items-center gap-3.5">
@@ -629,7 +662,7 @@ export default function MashwaraResultView({
 
         {/* 2. Decision / User Question */}
         <div
-          data-pdf-section="true"
+          data-pdf-section="question"
           className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm"
         >
           <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1.5">
@@ -642,7 +675,7 @@ export default function MashwaraResultView({
 
         {/* 3. Section Heading: Mahireen ki Raaye */}
         <div
-          data-pdf-section="true"
+          data-pdf-section="experts-heading"
           className="pt-2 pb-1 border-b-2 border-slate-200 flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
@@ -656,11 +689,11 @@ export default function MashwaraResultView({
           </span>
         </div>
 
-        {/* 4. Expert 1 to 6 Analysis Cards (All Expanded) */}
+        {/* 4. Expert 1 to 6 Analysis Cards (All Expanded & Semantic Paginatable Blocks) */}
         {roles.map((role: any, idx: number) => {
-          const stream = effectiveStreams[role.key];
-          const vote = report?.board_votes?.[role.key];
-          const expertSnapshot = experts?.find((e) => e.role_id === role.key);
+          const stream = effectiveStreams[role.key] || effectiveStreams[role.role_id];
+          const vote = report?.board_votes?.[role.key] || report?.board_votes?.[role.role_id];
+          const expertSnapshot = experts?.find((e) => e.role_id === role.key || e.role_id === role.role_id);
           const effectiveVote =
             vote || (expertSnapshot ? { vote: expertSnapshot.vote, confidence: expertSnapshot.confidence } : undefined);
           const vs = token(effectiveVote?.vote, t);
@@ -669,78 +702,125 @@ export default function MashwaraResultView({
             .replace(/^\s*\*?\*?Final Analysis:\*?\*?\s*/i, "")
             .trim();
 
+          const sectionKey = `expert-${role.key || role.role_id || idx + 1}`;
+          const analysisBlocks = splitAnalysisIntoBlocks(cleanText);
+
           return (
-            <article
-              key={role.key || idx}
-              data-pdf-section="true"
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3"
-            >
-              <header className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm text-white`}>
-                    {role.icon}
-                  </div>
-                  <div className="min-w-0 text-start">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
-                        #{idx + 1}
-                      </span>
-                      <h3 className="text-xs font-bold text-slate-900 truncate">
-                        {t.agents[role.key]?.title || role.name || role.key}
-                      </h3>
+            <React.Fragment key={role.key || role.role_id || idx}>
+              {/* Primary Expert Card: Header, vote, badge, and primary semantic block */}
+              <article
+                data-pdf-section={sectionKey}
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm space-y-3"
+              >
+                <header className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-8 h-8 rounded-xl bg-gradient-to-br ${role.color} flex items-center justify-center text-sm flex-shrink-0 shadow-sm text-white`}>
+                      {role.icon}
                     </div>
-                    <p className="text-[10px] text-slate-500 truncate">
-                      {t.agents[role.key]?.role || role.title}
-                    </p>
+                    <div className="min-w-0 text-start">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-slate-100 text-slate-600">
+                          #{idx + 1}
+                        </span>
+                        <h3 className="text-xs font-bold text-slate-900 truncate">
+                          {t.agents[role.key]?.title || role.name || role.key}
+                        </h3>
+                      </div>
+                      <p className="text-[10px] text-slate-500 truncate">
+                        {t.agents[role.key]?.role || role.title}
+                      </p>
+                    </div>
+                  </div>
+                  {effectiveVote && (
+                    <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border shadow-sm flex-shrink-0 ${vs.pill}`}>
+                      {vs.icon} {vs.label} · {effectiveVote.confidence}%
+                    </span>
+                  )}
+                </header>
+                <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {analysisBlocks[0] || `_${t.canvas.noAnalysis}_`}
+                  </ReactMarkdown>
+                </div>
+              </article>
+
+              {/* Naturally paginated continuation blocks if analysis is oversized */}
+              {analysisBlocks.slice(1).map((block, bIdx) => (
+                <div
+                  key={`${sectionKey}-cont-${bIdx}`}
+                  data-pdf-section={`${sectionKey}-part-${bIdx + 2}`}
+                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm border-l-4 border-l-blue-500 space-y-2"
+                >
+                  <div className="text-[10px] text-slate-400 font-semibold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                    <span>{t.agents[role.key]?.title || role.name || role.key}</span>
+                    <span>•</span>
+                    <span>{isUrdu ? "تجزیہ (جاری)" : "Analysis (Contd.)"}</span>
+                  </div>
+                  <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{block}</ReactMarkdown>
                   </div>
                 </div>
-                {effectiveVote && (
-                  <span className={`flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 rounded-lg border shadow-sm flex-shrink-0 ${vs.pill}`}>
-                    {vs.icon} {vs.label} · {effectiveVote.confidence}%
-                  </span>
-                )}
-              </header>
-              <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {cleanText || `_${t.canvas.noAnalysis}_`}
-                </ReactMarkdown>
-              </div>
-            </article>
+              ))}
+            </React.Fragment>
           );
         })}
 
         {/* Lead Mashir / relevant synthesis if appropriate */}
-        {leadAdvisorText && (
-          <article
-            data-pdf-section="true"
-            className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 shadow-sm space-y-3"
-          >
-            <header className="flex items-center justify-between gap-3 pb-3 border-b border-indigo-100">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-700 text-white flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
-                  ⚖️
+        {leadAdvisorText && (() => {
+          const leadBlocks = splitAnalysisIntoBlocks(leadAdvisorText);
+          return (
+            <React.Fragment>
+              <article
+                data-pdf-section="lead-synthesis"
+                className="rounded-2xl border border-indigo-200 bg-indigo-50/40 p-5 shadow-sm space-y-3"
+              >
+                <header className="flex items-center justify-between gap-3 pb-3 border-b border-indigo-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-700 text-white flex items-center justify-center text-sm flex-shrink-0 shadow-sm">
+                      ⚖️
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-slate-900">
+                        {moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Mashir")}
+                      </h3>
+                      <p className="text-[10px] text-indigo-700">
+                        {isUrdu ? "جامع مشاورت اور حتمی خلاصہ" : "Council Synthesis & Deliberation Lead"}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    {isUrdu ? "رہنما تلخیص" : "Lead Synthesis"}
+                  </span>
+                </header>
+                <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{leadBlocks[0]}</ReactMarkdown>
                 </div>
-                <div>
-                  <h3 className="text-xs font-bold text-slate-900">
-                    {moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Mashir")}
-                  </h3>
-                  <p className="text-[10px] text-indigo-700">
-                    {isUrdu ? "جامع مشاورت اور حتمی خلاصہ" : "Council Synthesis & Deliberation Lead"}
-                  </p>
+              </article>
+
+              {leadBlocks.slice(1).map((block, bIdx) => (
+                <div
+                  key={`lead-synthesis-cont-${bIdx}`}
+                  data-pdf-section={`lead-synthesis-part-${bIdx + 2}`}
+                  className="rounded-xl border border-indigo-200 bg-indigo-50/30 p-4 shadow-sm border-l-4 border-l-indigo-600 space-y-2"
+                >
+                  <div className="text-[10px] text-indigo-600 font-semibold flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-600" />
+                    <span>{moderator?.name || (isUrdu ? "لیڈ مشیر" : "Lead Mashir")}</span>
+                    <span>•</span>
+                    <span>{isUrdu ? "خلاصہ (جاری)" : "Synthesis (Contd.)"}</span>
+                  </div>
+                  <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{block}</ReactMarkdown>
+                  </div>
                 </div>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
-                {isUrdu ? "رہنما تلخیص" : "Lead Synthesis"}
-              </span>
-            </header>
-            <div className="prose prose-xs prose-slate max-w-none text-xs text-slate-700 leading-relaxed">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{leadAdvisorText}</ReactMarkdown>
-            </div>
-          </article>
-        )}
+              ))}
+            </React.Fragment>
+          );
+        })()}
 
         {/* ──────────────────────── Divider ──────────────────────── */}
-        <div data-pdf-section="true" className="py-2 flex items-center gap-3">
+        <div data-pdf-section="report-divider" className="py-2 flex items-center gap-3">
           <div className="flex-1 h-px bg-slate-300" />
           <span className="text-xs font-bold text-slate-500 uppercase tracking-widest px-2">
             Mashwara Report
@@ -750,7 +830,7 @@ export default function MashwaraResultView({
 
         {/* 5. Mashwara Report Section Heading */}
         <div
-          data-pdf-section="true"
+          data-pdf-section="report-heading"
           className="pt-1 pb-1 border-b-2 border-slate-200 flex items-center justify-between"
         >
           <div className="flex items-center gap-2">
@@ -769,7 +849,7 @@ export default function MashwaraResultView({
         {/* 6. Final Mashwara + Confidence + Expert vote summary */}
         {hasReport && (
           <div
-            data-pdf-section="true"
+            data-pdf-section="report-final"
             className="rounded-2xl p-5 bg-gradient-to-br from-slate-50 to-white border border-slate-200 shadow-sm space-y-4"
           >
             <div className="flex items-center gap-5">
@@ -829,7 +909,7 @@ export default function MashwaraResultView({
         {/* 7. Consensus / Debate summary */}
         {report?.debate_summary && (
           <article
-            data-pdf-section="true"
+            data-pdf-section="report-summary"
             className="rounded-2xl bg-slate-50 border border-slate-200 p-5 space-y-2 shadow-sm"
           >
             <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
@@ -843,7 +923,7 @@ export default function MashwaraResultView({
 
         {/* 8. Where Experts Agree & Where Experts Disagree */}
         {(report?.agreement || report?.disagreement) && (
-          <div data-pdf-section="true" className="grid grid-cols-2 gap-4">
+          <div data-pdf-section="report-agreement-disagreement" className="grid grid-cols-2 gap-4">
             {report.agreement && (
               <div className="rounded-2xl bg-blue-50/70 border border-blue-200 p-4 space-y-1.5">
                 <div className="flex items-center gap-1.5">
@@ -875,7 +955,7 @@ export default function MashwaraResultView({
 
         {/* 9. Key Risks & Next Steps (Recommended Actions) */}
         {(report?.key_risks?.length > 0 || report?.recommended_actions?.length > 0) && (
-          <div data-pdf-section="true" className="grid grid-cols-2 gap-4">
+          <div data-pdf-section="report-risks-actions" className="grid grid-cols-2 gap-4">
             {report?.key_risks?.length > 0 && (
               <div className="rounded-2xl bg-red-50/70 border border-red-200 p-4 space-y-2.5">
                 <div className="flex items-center gap-1.5">
@@ -919,7 +999,7 @@ export default function MashwaraResultView({
 
         {/* 10. Assumptions & What Could Change */}
         {(report?.assumptions?.length > 0 || report?.what_would_change) && (
-          <div data-pdf-section="true" className="space-y-3">
+          <div data-pdf-section="report-assumptions-changes" className="space-y-3">
             {report?.assumptions?.length > 0 && (
               <div className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-1.5">
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
@@ -950,7 +1030,7 @@ export default function MashwaraResultView({
 
         {/* 11. Footer Watermark */}
         <footer
-          data-pdf-section="true"
+          data-pdf-section="footer"
           className="pt-3 border-t border-slate-200 flex items-center justify-between text-[10px] text-slate-400"
         >
           <span>🏛️ Mashwara AI • AI-Powered Consultation Intelligence</span>

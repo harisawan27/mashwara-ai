@@ -9,6 +9,11 @@ export interface SessionInfo {
   updated_at: string;
 }
 
+export function deriveSessionTitle(text: string): string {
+  const cleaned = (text || "").trim();
+  return cleaned.length > 35 ? cleaned.slice(0, 35) + "..." : (cleaned || "New Brainstorming Session");
+}
+
 interface SessionState {
   sessions: SessionInfo[];
   loading: boolean;

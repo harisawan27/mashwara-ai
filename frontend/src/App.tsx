@@ -15,6 +15,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/c/:sessionId" element={<Dashboard />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/m/:shareId" element={<SharedMashwaraPage />} />
         {/* Catch-all route to redirect back to Dashboard */}

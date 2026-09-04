@@ -251,18 +251,41 @@ select {
 /* -------------------------------------------------------------------------
    Urdu Typography & RTL Enhancements
    ------------------------------------------------------------------------- */
-html[lang="ur"], html.lang-ur, [dir="rtl"] {
-  font-family: 'Noto Sans Arabic', 'Noto Nastaliq Urdu', 'Urdu Typesetting', var(--font-sans);
+html[lang="ur"], html.lang-ur, .lang-ur, .font-urdu {
+  font-family: 'Noto Nastaliq Urdu', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
-html[lang="ur"] body, html.lang-ur body {
-  line-height: 1.75;
+html[lang="ur"] body, html.lang-ur body, .lang-ur {
+  line-height: 1.9;
   letter-spacing: 0;
 }
 
-html[lang="ur"] h1, html[lang="ur"] h2, html[lang="ur"] h3, html[lang="ur"] h4 {
-  line-height: 1.45;
+html[lang="ur"] h1, html[lang="ur"] h2, html[lang="ur"] h3, html[lang="ur"] h4,
+html.lang-ur h1, html.lang-ur h2, html.lang-ur h3, html.lang-ur h4 {
+  line-height: 1.7;
   letter-spacing: 0;
+}
+
+html[lang="ur"] button, html.lang-ur button {
+  min-height: 2.25rem;
+  line-height: 1.6;
+}
+
+/* Explicitly exempt passwords, emails, technical codes, URLs from Nastaliq */
+html[lang="ur"] input[type="password"],
+html.lang-ur input[type="password"],
+html[lang="ur"] input[type="email"],
+html.lang-ur input[type="email"],
+html[lang="ur"] input[dir="ltr"],
+html.lang-ur input[dir="ltr"],
+html[lang="ur"] code,
+html.lang-ur code,
+html[lang="ur"] pre,
+html.lang-ur pre,
+html[lang="ur"] .font-mono,
+html.lang-ur .font-mono {
+  font-family: var(--font-sans) !important;
+  line-height: normal;
 }
 
 /* -------------------------------------------------------------------------

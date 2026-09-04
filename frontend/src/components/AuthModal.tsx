@@ -133,7 +133,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
 
       {/* Auth Card */}
       <div 
-        className="relative glass-elevated rounded-3xl w-full max-w-md p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
+        className="relative glass-elevated rounded-3xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto custom-scrollbar p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dismiss Button */}
@@ -258,9 +258,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl ${
-                  isRTL ? "pl-12 pr-4 text-left" : "pl-4 pr-12 text-left"
-                } py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none text-sm`}
+                className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl pl-4 pr-12 text-left py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none text-sm"
                 placeholder={t.auth.passwordPlaceholder}
                 dir="ltr"
                 required
@@ -268,7 +266,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className={`absolute ${isRTL ? "left-3" : "right-3"} top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1`}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-white transition-colors p-1 cursor-pointer"
                 aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
               >
                 {showPassword ? (

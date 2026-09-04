@@ -27,7 +27,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
   const { sessions, loading, fetchSessions, removeSession, updateSessionTitle } = useSessionStore();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const { t, isRTL } = useTranslation();
+  const { t, isRTL, language, setLanguage } = useTranslation();
   const navigate = useNavigate();
 
   // Modals & Edit state
@@ -35,6 +35,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [isLangMenuOpen, setIsLangMenuOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // PWA state
@@ -305,6 +306,72 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
             <div className="h-px w-full bg-slate-200 dark:bg-white/5 my-1"></div>
           </>
         )}
+
+        {/* Compact Language Selector */}
+        <div className="relative">
+          <div className="flex items-center justify-between px-1 py-1 md:py-0">
+            <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider md:text-[10px]">
+              {isRTL ? "زبان" : "Language"}
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsLangMenuOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-200/60 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs text-slate-800 dark:text-slate-200 border border-slate-300/50 dark:border-white/10 transition-all cursor-pointer"
+            >
+              <span>🌐</span>
+              <span className="font-semibold text-[11px]">
+                {language === "ur" ? "اردو" : language === "roman-ur" ? "Roman Urdu" : "English"}
+              </span>
+              <svg className={`w-3 h-3 text-slate-400 transition-transform ${isLangMenuOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+
+          {isLangMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setIsLangMenuOpen(false)} />
+              <div className={`absolute bottom-full mb-1.5 ${isRTL ? "left-1" : "right-1"} w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl z-50 py-1 overflow-hidden animate-scale-in`}>
+                <button
+                  onClick={() => {
+                    setLanguage("ur");
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`w-full text-start px-3 py-2 text-xs flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-500/10 cursor-pointer ${
+                    language === "ur" ? "font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/5" : "text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <span className="font-urdu text-sm">اردو</span>
+                  {language === "ur" && <span className="text-xs">✓</span>}
+                </button>
+                <button
+                  onClick={() => {
+                    setLanguage("roman-ur");
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`w-full text-start px-3 py-2 text-xs flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-500/10 cursor-pointer ${
+                    language === "roman-ur" ? "font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/5" : "text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <span>Roman Urdu</span>
+                  {language === "roman-ur" && <span className="text-xs">✓</span>}
+                </button>
+                <button
+                  onClick={() => {
+                    setLanguage("en");
+                    setIsLangMenuOpen(false);
+                  }}
+                  className={`w-full text-start px-3 py-2 text-xs flex items-center justify-between hover:bg-blue-50 dark:hover:bg-blue-500/10 cursor-pointer ${
+                    language === "en" ? "font-bold text-blue-600 dark:text-blue-400 bg-blue-50/50 dark:bg-blue-500/5" : "text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  <span>English</span>
+                  {language === "en" && <span className="text-xs">✓</span>}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
 
         <div className="flex items-center justify-between px-1 py-1 md:py-0">
           <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider md:text-[10px]">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe, exchangeNeonAuthSession, getNeonAuthConfig } from "../api/client";
@@ -9,7 +10,7 @@ import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
 import TutorialModal from "../components/TutorialModal";
 import { useAuthStore } from "../store/authStore";
-import { useSessionStore } from "../store/sessionStore";
+import { useSessionStore, deriveSessionTitle } from "../store/sessionStore";
 import { TEMPLATES } from "../types/meeting";
 import { useTranslation } from "../i18n";
 
@@ -37,6 +38,10 @@ export default function Dashboard() {
   const setUser = useAuthStore((state) => state.setUser);
   const fetchSessions = useSessionStore((state) => state.fetchSessions);
   const addSession = useSessionStore((state) => state.addSession);
+  const sessions = useSessionStore((state) => state.sessions);
+  const updateSessionTitle = useSessionStore((state) => state.updateSessionTitle);
+  const { sessionId: routeSessionId } = useParams<{ sessionId?: string }>();
+  const navigate = useNavigate();
   const abortControllerRef = useRef<AbortController | null>(null);
   const { t, isRTL } = useTranslation();
   
@@ -46,13 +51,28 @@ export default function Dashboard() {
   const [selectedTemplate, setSelectedTemplate] = useState("STARTUP_BOARD");
   
   const [isProcessing, setIsProcessing] = useState(false);
-  const [activeSessionId, setActiveSessionId] = useState<string | undefined>();
+  const [activeSessionId, setActiveSessionId] = useState<string | undefined>(routeSessionId);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState("");
   const [thinkingExpandedId, setThinkingExpandedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (routeSessionId) {
+      if (token) {
+        if (activeSessionId !== routeSessionId) {
+          loadSession(routeSessionId);
+        }
+      } else {
+        navigate("/", { replace: true });
+      }
+    } else if (activeSessionId && !routeSessionId) {
+      setActiveSessionId(undefined);
+      setMessages([]);
+    }
+  }, [routeSessionId, token]);
 
   const handleCopy = (text: string, id: string) => {
     navigator.clipboard.writeText(text);
@@ -211,7 +231,10 @@ export default function Dashboard() {
       setMessages(data.messages || []);
       setActiveSessionId(sessionId);
     } catch (err) {
-      console.error(err);
+      console.error("Failed to load session:", err);
+      setActiveSessionId(undefined);
+      setMessages([]);
+      navigate("/", { replace: true });
     }
   };
 
@@ -221,9 +244,10 @@ export default function Dashboard() {
       setMessages([]);
       setInput("");
       setIsProcessing(false);
+      navigate("/");
       return;
     }
-    loadSession(session.id);
+    navigate(`/c/${session.id}`);
   };
 
   const handleStandardChat = async (e: React.FormEvent) => {
@@ -239,8 +263,18 @@ export default function Dashboard() {
       if (token && !sessionId) {
         const newSession = await createSession();
         sessionId = newSession.id;
-        setActiveSessionId(sessionId);
+        const derivedTitle = deriveSessionTitle(userText);
+        newSession.title = derivedTitle;
+        setActiveSessionId(newSession.id);
         addSession(newSession);
+        updateSessionTitle(newSession.id, derivedTitle);
+        navigate(`/c/${newSession.id}`, { replace: true });
+      } else if (token && sessionId) {
+        const currentSession = sessions.find((s) => s.id === sessionId);
+        if (currentSession && (currentSession.title === "New Brainstorming Session" || !currentSession.title)) {
+          const derivedTitle = deriveSessionTitle(userText);
+          updateSessionTitle(sessionId, derivedTitle);
+        }
       }
 
       const tempUserId = Date.now().toString();
@@ -344,8 +378,18 @@ export default function Dashboard() {
       if (token && !sessionId) {
         const newSession = await createSession();
         sessionId = newSession.id;
-        setActiveSessionId(sessionId);
+        const derivedTitle = deriveSessionTitle(userText);
+        newSession.title = derivedTitle;
+        setActiveSessionId(newSession.id);
         addSession(newSession);
+        updateSessionTitle(newSession.id, derivedTitle);
+        navigate(`/c/${newSession.id}`, { replace: true });
+      } else if (token && sessionId) {
+        const currentSession = sessions.find((s) => s.id === sessionId);
+        if (currentSession && (currentSession.title === "New Brainstorming Session" || !currentSession.title)) {
+          const derivedTitle = deriveSessionTitle(userText);
+          updateSessionTitle(sessionId, derivedTitle);
+        }
       }
 
       const tempUserId = Date.now().toString();
@@ -503,11 +547,11 @@ export default function Dashboard() {
           </div>
         </nav>
 
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 custom-scrollbar relative">
-          <div className="max-w-3xl mx-auto space-y-6 pb-40">
+        <main className={`flex-1 ${messages.length === 0 ? "overflow-hidden flex flex-col" : "overflow-y-auto"} p-4 sm:p-6 custom-scrollbar relative`}>
+          <div className={`max-w-3xl mx-auto w-full ${messages.length === 0 ? "flex-1 flex flex-col min-h-0 justify-center pb-28 sm:pb-32" : "space-y-6 pb-40"}`}>
             {/* Guest Banner */}
             {!token && (
-              <div className="p-3.5 sm:p-4 rounded-2xl bg-amber-500/[0.08] dark:bg-amber-500/[0.06] border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-up shadow-sm">
+              <div className="shrink-0 mb-3 p-3.5 sm:p-4 rounded-2xl bg-amber-500/[0.08] dark:bg-amber-500/[0.06] border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-up shadow-sm">
                 <div className="flex items-start sm:items-center gap-3">
                   <div className="w-8 h-8 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 mt-0.5 sm:mt-0">
                     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -533,22 +577,22 @@ export default function Dashboard() {
               </div>
             )}
             {messages.length === 0 && (
-              <div className="text-center mt-20 animate-fade-in px-4">
-                <div className="inline-flex w-16 h-16 rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/5 items-center justify-center mb-6 p-3">
+              <div className="flex-1 flex flex-col items-center justify-center text-center my-auto animate-fade-in px-4">
+                <div className="inline-flex w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/5 items-center justify-center mb-4 sm:mb-5 p-2.5 sm:p-3">
                   <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain drop-shadow-sm" />
                 </div>
-                <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">{t.emptyState.title}</h2>
-                <p className="text-slate-600 dark:text-slate-400 mb-8 max-w-md mx-auto text-sm sm:text-base leading-relaxed">
+                <h2 className="text-xl sm:text-2xl font-bold text-slate-900 dark:text-white mb-2">{t.emptyState.title}</h2>
+                <p className="text-slate-600 dark:text-slate-400 mb-6 max-w-md mx-auto text-xs sm:text-sm leading-relaxed">
                   {t.emptyState.description}
                 </p>
 
                 {!hasSeenTutorial && (
                   <button 
                     onClick={() => setIsTutorialOpen(true)}
-                    className="mb-8 mx-auto flex items-center gap-3 px-6 py-3 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-500/20 transition-all group font-medium"
+                    className="mb-6 mx-auto flex items-center gap-3 px-5 py-2.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-500/20 transition-all group font-medium text-xs sm:text-sm"
                   >
-                    <div className="w-8 h-8 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md shadow-blue-500/30 group-hover:scale-110 transition-transform">
-                      <svg className="w-4 h-4 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md shadow-blue-500/30 group-hover:scale-110 transition-transform">
+                      <svg className="w-3.5 h-3.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
@@ -559,7 +603,7 @@ export default function Dashboard() {
 
                 <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
                   {t.emptyState.suggestedPrompts.map((q, i) => (
-                    <button key={i} onClick={() => setInput(q)} className="px-4 py-2 rounded-full border border-slate-200 dark:border-white/10 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-blue-500/50 hover:bg-blue-500/10 transition-all shadow-sm dark:shadow-none bg-white dark:bg-transparent">
+                    <button key={i} onClick={() => setInput(q)} className="px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-full border border-slate-200 dark:border-white/10 text-xs text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:border-blue-500/50 hover:bg-blue-500/10 transition-all shadow-sm dark:shadow-none bg-white dark:bg-transparent">
                       "{q}"
                     </button>
                   ))}
