@@ -310,3 +310,67 @@ export async function streamStandardMessage(
     }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Shared Mashwara API
+// ---------------------------------------------------------------------------
+export interface SharedMashwaraExpert {
+  role_id: string;
+  name: string;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+  analysis: string;
+  vote: string;
+  confidence: number;
+}
+
+export interface SharedMashwaraSnapshot {
+  decision_title: string;
+  language: string;
+  domain: string;
+  template: string;
+  experts: SharedMashwaraExpert[];
+  report: {
+    final_decision: string;
+    confidence_score: number;
+    board_votes: Record<string, { vote: string; confidence: number }>;
+    debate_summary: string;
+    key_risks: string[];
+    recommended_actions: string[];
+    agreement?: string;
+    disagreement?: string;
+    assumptions?: string[];
+    what_would_change?: string;
+  };
+  created_at: string;
+}
+
+export interface PublicSharedMashwaraData {
+  share_id: string;
+  language: string;
+  decision_title: string;
+  snapshot: SharedMashwaraSnapshot;
+  created_at: string;
+}
+
+export interface CreateShareResponse {
+  share_id: string;
+  share_url: string;
+}
+
+export async function createSharedMashwara(payload: {
+  meeting_id?: string;
+  snapshot?: any;
+  language?: string;
+  decision_title?: string;
+}): Promise<CreateShareResponse> {
+  const res = await apiClient.post<CreateShareResponse>("/shared-mashwaras", payload);
+  return res.data;
+}
+
+export async function getSharedMashwara(shareId: string): Promise<PublicSharedMashwaraData> {
+  const res = await apiClient.get<PublicSharedMashwaraData>(`/shared-mashwaras/${shareId}`);
+  return res.data;
+}

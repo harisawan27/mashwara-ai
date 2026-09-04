@@ -1,0 +1,13 @@
+.git
+.github
+.vscode
+frontend
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.env*
+!backend/.env.example
+env.yaml
+.env.cloudrun.yaml
+boardroom.db

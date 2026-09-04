@@ -1,19 +1,21 @@
-# Dockerfile for Hugging Face Spaces (Compatible with Docker & Gradio)
+# Mashwara AI — Google Cloud Run Production Dockerfile (Pure FastAPI Backend)
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code and Gradio entrypoint
+# Copy backend source code
 COPY backend/ /app/backend/
-COPY app.py /app/
 
-# Hugging Face Spaces expose port 7860 by default
-EXPOSE 7860
+# Set Python path for module resolution
+ENV PYTHONPATH=/app/backend
+ENV PYTHONUNBUFFERED=1
 
-# Command to run the unified Gradio + FastAPI app
-CMD ["python", "app.py"]
+# Expose default Cloud Run port
+EXPOSE 8080
+
+# Run FastAPI backend via Uvicorn
+CMD ["sh", "-c", "uvicorn main:app --app-dir /app/backend --host 0.0.0.0 --port ${PORT:-8080}"]

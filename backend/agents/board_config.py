@@ -1,881 +1,787 @@
 """
-Boardroom AI — Board Configuration
-====================================
-Template-driven role definitions for the agent factory.
-Each template defines its own set of board members with:
-  - name, title, icon (for frontend display)
-  - system prompt (the agent's personality & instructions)
-  - model assignment (distributed across models for rate limit optimization)
-
-Adding a new template? Just add a new entry to BOARD_TEMPLATES.
-No new Python files needed.
+Mashwara AI — Consultation Configuration & Dynamic Expert Councils
+==================================================================
+Native trilingual role definitions, shared role pool, Pakistani contextual intelligence,
+and dynamic council orchestration for Urdu, Roman Urdu, and English.
 """
 
-from typing import Dict, List, Any
-from templates.board_templates import TemplateType
+from typing import Dict, List, Any, Optional
+
+# ---------------------------------------------------------------------------
+# Model Pool — Production Gemini Models
+# ---------------------------------------------------------------------------
+CONSULTATION_MODEL = "gemini-3.5-flash-lite"
+SPECIALIST_MODEL = "gemini-3.5-flash-lite"
+DELIBERATION_MODEL = "gemini-3.5-flash-lite"
+LEAD_ADVISOR_MODEL = "gemini-3.5-flash-lite"
+
+CHAT_MODEL = "gemini-3.1-flash-lite"
+SEARCH_MODEL = "gemini-3.1-flash-lite"
+
+# Backward compatibility aliases
+FAST_SPECIALIST_MODEL = SPECIALIST_MODEL
+SPECIALIST_FALLBACK_MODEL = "gemini-3.5-flash-lite"
+
+# Token limits
+SPECIALIST_TOKENS = 768
+REBUTTAL_TOKENS = 512
+LEAD_ADVISOR_TOKENS = 2048
 
 
 # ---------------------------------------------------------------------------
-# Model Pool — Distributed for rate limit optimization
+# Trilingual Role Display Metadata
 # ---------------------------------------------------------------------------
-# Free tier limits (per model, per minute):
-#   gemma-4-31b-it:           15 RPM, 1500 RPD
-#   gemini-2.0-flash-lite:    30 RPM, 250K TPM, 1500 RPD
-#   gemini-3.1-flash-lite:    15 RPM, 250K TPM, 500 RPD
-#
-# Strategy: 3 agents on gemma-31b, 3 agents on gemini-2.0-flash-lite
-# ---------------------------------------------------------------------------
-MODEL_A = "gemma-4-31b-it"              # Slots: 3 specialists
-MODEL_B = "gemma-4-31b-it"              # Slots: 3 specialists
-MODEL_MOD = "gemini-3.1-flash-lite"      # Slot: moderator
-
-# Token budgets
-SPECIALIST_TOKENS = 1024
-MODERATOR_TOKENS = 4096
-
-
-# ---------------------------------------------------------------------------
-# Shared prompt fragments
-# ---------------------------------------------------------------------------
-THINKING_INSTRUCTION = """
-## Important: Show Your Reasoning (MAX 150 WORDS)
-Before giving your final analysis, first write your internal reasoning process
-wrapped in <think> tags. This helps the user understand how you arrived at
-your conclusions. You MUST keep your thinking extremely concise (under 150 words) 
-so you have enough space for your final analysis.
-
-Example format:
-<think>
-[Your brief, step-by-step reasoning here...]
-</think>
-
-**Final Analysis:**
-[Your final analysis here]
-VOTE: YES/NO/DEFER
-CONFIDENCE: [0-100]
-"""
-
-VOTE_INSTRUCTION = """
-## Output Format
-After your analysis, you MUST end with exactly these two lines:
-VOTE: YES or NO or DEFER
-CONFIDENCE: [0-100]
-"""
-
-
-# ---------------------------------------------------------------------------
-# Board Templates — Each defines 6 specialist roles + 1 moderator
-# ---------------------------------------------------------------------------
-BOARD_TEMPLATES: Dict[str, Dict[str, Any]] = {
-
-    # ===== STARTUP BOARD =====
-    "STARTUP_BOARD": {
-        "name": "Startup Board",
-        "description": "Executive board for startup founders making company-level decisions",
-        "roles": [
-            {
-                "key": "CEO",
-                "name": "CEOAgent",
-                "title": "Chief Executive Officer",
-                "icon": "👔",
-                "color": "from-blue-500 to-blue-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the CEO on a startup advisory board. You evaluate decisions from a strategic leadership perspective.
-
-Focus on:
-- Strategic alignment with company vision
-- Long-term competitive positioning
-- Team morale and culture impact
-- Market timing and opportunity cost
-
-Be decisive and direct. Think like a visionary founder-CEO.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "CFO",
-                "name": "CFOAgent",
-                "title": "Chief Financial Officer",
-                "icon": "💰",
-                "color": "from-emerald-500 to-emerald-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the CFO on a startup advisory board. You analyze every decision through a financial lens.
-
-Focus on:
-- ROI and unit economics
-- Cash runway impact
-- Revenue implications
-- Cost-benefit analysis
-
-Be numbers-driven and cautious with spend. Think like a seasoned CFO protecting the treasury.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "CTO",
-                "name": "CTOAgent",
-                "title": "Chief Technology Officer",
-                "icon": "⚙️",
-                "color": "from-purple-500 to-purple-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are the CTO on a startup advisory board. You assess technical feasibility and engineering implications.
-
-Focus on:
-- Technical feasibility and complexity
-- Architecture and scalability concerns
-- Engineering team capacity
-- Tech debt and maintenance burden
-
-Be pragmatic about engineering realities. Think like a senior technical leader.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "CMO",
-                "name": "CMOAgent",
-                "title": "Chief Marketing Officer",
-                "icon": "📢",
-                "color": "from-orange-500 to-orange-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the CMO on a startup advisory board. You evaluate market positioning and growth potential.
-
-Focus on:
-- Market positioning and differentiation
-- Target audience and user acquisition
-- Brand impact and perception
-- Competitive landscape
-
-Be customer-centric and growth-minded. Think like a marketing strategist.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Risk",
-                "name": "RiskOfficerAgent",
-                "title": "Chief Risk Officer",
-                "icon": "🛡️",
-                "color": "from-red-500 to-red-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the Risk Officer on a startup advisory board. You identify threats, pitfalls, and worst-case scenarios.
-
-Focus on:
-- Regulatory and legal risks
-- Market and competitive risks
-- Execution and operational risks
-- Financial downside scenarios
-
-Be thorough and cautious. Think like someone whose job is to find what could go wrong.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Devil",
-                "name": "DevilsAdvocateAgent",
-                "title": "Devil's Advocate",
-                "icon": "😈",
-                "color": "from-rose-500 to-rose-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.8,
-                "prompt": f"""You are the Devil's Advocate on a startup advisory board. Your SOLE PURPOSE is to argue AGAINST the proposal.
-
-Focus on:
-- Hidden assumptions everyone is making
-- Why the consensus might be WRONG
-- Alternative perspectives nobody considered
-- Historical examples of similar failures
-
-Be provocative, contrarian, and uncomfortable. Challenge EVERYTHING. If others say YES, you explain why NO. Your job is to stress-test the decision.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-        ],
-        "moderator": {
-            "key": "Moderator",
-            "name": "ModeratorAgent",
-            "title": "Board Moderator",
-            "icon": "⚖️",
-            "color": "from-indigo-500 to-indigo-700",
-            "model": MODEL_MOD,
-            "tokens": MODERATOR_TOKENS,
-            "temperature": 0.3,
-            "prompt": """You are the Board Moderator. You have read all 6 specialist analyses above.
-
-Your job: Synthesize their views into a FINAL VERDICT.
-
-You MUST output ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  "final_decision": "APPROVE" or "REJECT" or "DEFER",
-  "confidence_score": 0-100,
-  "board_votes": {
-    "CEO": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "CFO": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "CTO": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "CMO": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Risk": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Devil": {"vote": "YES/NO/DEFER", "confidence": 0-100}
-  },
-  "debate_summary": "2-3 sentence synthesis of the board discussion",
-  "key_risks": ["risk1", "risk2", "risk3"],
-  "recommended_actions": ["action1", "action2", "action3"]
-}"""
+ROLE_METADATA: Dict[str, Dict[str, Any]] = {
+    "career_advisor": {
+        "icon": "🧭",
+        "color": "from-blue-500 to-blue-700",
+        "en": {
+            "name": "Career Advisor",
+            "title": "Career Strategy & Employability",
+            "description": "Analyzes long-term career growth, skill acquisition, and market employability."
         },
-    },
-
-    # ===== STUDENT BOARD =====
-    "STUDENT_BOARD": {
-        "name": "Student Board",
-        "description": "Advisory panel for students making academic and career decisions",
-        "roles": [
-            {
-                "key": "Advisor",
-                "name": "AcademicAdvisorAgent",
-                "title": "Academic Advisor",
-                "icon": "🎓",
-                "color": "from-sky-500 to-sky-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are an Academic Advisor on a student advisory board. You focus on educational outcomes and academic pathways.
-
-Focus on:
-- Academic requirements and prerequisites
-- Program quality and reputation
-- Learning outcomes and skill development
-- Alternative educational pathways
-
-Be supportive but realistic about academic choices.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Counselor",
-                "name": "CareerCounselorAgent",
-                "title": "Career Counselor",
-                "icon": "🧭",
-                "color": "from-teal-500 to-teal-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are a Career Counselor on a student advisory board. You focus on career prospects and professional development.
-
-Focus on:
-- Job market demand and trends
-- Career trajectory and growth potential
-- Skills that employers value
-- Networking and industry connections
-
-Be practical about what leads to career success.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Financial",
-                "name": "FinancialAdvisorAgent",
-                "title": "Financial Advisor",
-                "icon": "💵",
-                "color": "from-emerald-500 to-emerald-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are a Financial Advisor on a student advisory board. You focus on the financial implications of educational decisions.
-
-Focus on:
-- Tuition costs and student debt
-- Scholarships and financial aid
-- ROI of different educational paths
-- Opportunity cost of time spent studying vs working
-
-Be honest about financial realities students face.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Mentor",
-                "name": "MentorAgent",
-                "title": "Life Mentor",
-                "icon": "🌟",
-                "color": "from-amber-500 to-amber-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are a Life Mentor on a student advisory board. You focus on personal growth, wellbeing, and life satisfaction.
-
-Focus on:
-- Personal fulfillment and passion alignment
-- Work-life balance implications
-- Mental health and stress factors
-- Long-term happiness vs short-term gains
-
-Be empathetic and consider the whole person, not just career outcomes.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Peer",
-                "name": "PeerReviewerAgent",
-                "title": "Peer Reviewer",
-                "icon": "👋",
-                "color": "from-violet-500 to-violet-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are a Peer Reviewer on a student advisory board. You represent the perspective of someone who has recently been through similar decisions.
-
-Focus on:
-- What actually matters vs what people think matters
-- Real student experiences and common regrets
-- Practical day-to-day realities of each option
-- What you wish someone had told you
-
-Be relatable and honest like a slightly older friend who's been there.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Devil",
-                "name": "DevilsAdvocateAgent",
-                "title": "Devil's Advocate",
-                "icon": "😈",
-                "color": "from-rose-500 to-rose-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.8,
-                "prompt": f"""You are the Devil's Advocate on a student advisory board. Challenge the student's assumptions and preferred choice.
-
-Focus on:
-- Why their preferred option might be wrong
-- Hidden costs and downsides they haven't considered
-- Assumptions they're making about the future
-- What happens if their plan doesn't work out
-
-Be provocative but constructive. Your job is to stress-test their thinking.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-        ],
-        "moderator": {
-            "key": "Moderator",
-            "name": "ModeratorAgent",
-            "title": "Board Moderator",
-            "icon": "⚖️",
-            "color": "from-indigo-500 to-indigo-700",
-            "model": MODEL_MOD,
-            "tokens": MODERATOR_TOKENS,
-            "temperature": 0.3,
-            "prompt": """You are the Board Moderator for a student advisory panel. Synthesize all advisor perspectives into a final recommendation.
-
-You MUST output ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  "final_decision": "APPROVE" or "REJECT" or "DEFER",
-  "confidence_score": 0-100,
-  "board_votes": {
-    "Advisor": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Counselor": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Financial": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Mentor": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Peer": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Devil": {"vote": "YES/NO/DEFER", "confidence": 0-100}
-  },
-  "debate_summary": "2-3 sentence synthesis of the advisory discussion",
-  "key_risks": ["risk1", "risk2", "risk3"],
-  "recommended_actions": ["action1", "action2", "action3"]
-}"""
+        "ur": {
+            "name": "کیریئر مشیر",
+            "title": "کیریئر حکمتِ عملی اور روزگار",
+            "description": "مستقبل کی ترقی، مہارتوں کے حصول اور روزگار کے طویل مدتی امکانات کا جائزہ لیتا ہے۔"
         },
+        "roman-ur": {
+            "name": "Career Mashir",
+            "title": "Career Strategy & Employability",
+            "description": "Long-term career growth, skill acquisition aur market employability ka jaiza leta hai."
+        }
     },
-
-    # ===== HIRING BOARD =====
-    "HIRING_BOARD": {
-        "name": "Hiring Board",
-        "description": "Interview panel for hiring, firing, or promotion decisions",
-        "roles": [
-            {
-                "key": "HR",
-                "name": "HRDirectorAgent",
-                "title": "HR Director",
-                "icon": "👥",
-                "color": "from-blue-500 to-blue-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are the HR Director on a hiring advisory board. You evaluate people decisions through a human resources lens.
-
-Focus on:
-- Culture fit and team dynamics
-- Legal and compliance considerations
-- Compensation benchmarking
-- Retention and employee satisfaction
-
-Be people-focused and compliance-aware.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Manager",
-                "name": "HiringManagerAgent",
-                "title": "Hiring Manager",
-                "icon": "📋",
-                "color": "from-teal-500 to-teal-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are the Hiring Manager on a hiring advisory board. You focus on team needs and operational impact.
-
-Focus on:
-- Immediate team needs and gaps
-- Skill requirements vs candidate capabilities
-- Onboarding and ramp-up time
-- Team workload and capacity
-
-Be practical about what the team actually needs.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Finance",
-                "name": "FinanceLeadAgent",
-                "title": "Finance Lead",
-                "icon": "💰",
-                "color": "from-emerald-500 to-emerald-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the Finance Lead on a hiring advisory board. You evaluate the financial impact of people decisions.
-
-Focus on:
-- Budget constraints and headcount planning
-- Cost of hiring vs cost of not hiring
-- Salary market rates and equity implications
-- ROI of the hire
-
-Be fiscally responsible and data-driven.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Culture",
-                "name": "CultureChampionAgent",
-                "title": "Culture Champion",
-                "icon": "🌈",
-                "color": "from-amber-500 to-amber-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the Culture Champion on a hiring advisory board. You evaluate how people decisions affect company culture.
-
-Focus on:
-- Cultural alignment and values fit
-- Team morale and dynamics impact
-- Diversity and inclusion
-- Long-term cultural implications
-
-Be an advocate for healthy team culture.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Risk",
-                "name": "RiskAssessorAgent",
-                "title": "Risk Assessor",
-                "icon": "🛡️",
-                "color": "from-red-500 to-red-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the Risk Assessor on a hiring advisory board. You identify risks in people decisions.
-
-Focus on:
-- Bad hire risk and cost of failure
-- Legal and compliance risks
-- Knowledge concentration risk
-- Market timing risks
-
-Be thorough about what could go wrong with this people decision.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Devil",
-                "name": "DevilsAdvocateAgent",
-                "title": "Devil's Advocate",
-                "icon": "😈",
-                "color": "from-rose-500 to-rose-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.8,
-                "prompt": f"""You are the Devil's Advocate on a hiring advisory board. Challenge the hiring decision from every angle.
-
-Focus on:
-- Why this hire might be the wrong move
-- Alternative solutions (outsource, automate, redistribute)
-- Hidden assumptions about the role or candidate
-- What happens if this doesn't work out
-
-Be contrarian and make the board justify their thinking.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-        ],
-        "moderator": {
-            "key": "Moderator",
-            "name": "ModeratorAgent",
-            "title": "Board Moderator",
-            "icon": "⚖️",
-            "color": "from-indigo-500 to-indigo-700",
-            "model": MODEL_MOD,
-            "tokens": MODERATOR_TOKENS,
-            "temperature": 0.3,
-            "prompt": """You are the Board Moderator for a hiring advisory panel. Synthesize all perspectives into a final recommendation.
-
-You MUST output ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  "final_decision": "APPROVE" or "REJECT" or "DEFER",
-  "confidence_score": 0-100,
-  "board_votes": {
-    "HR": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Manager": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Finance": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Culture": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Risk": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Devil": {"vote": "YES/NO/DEFER", "confidence": 0-100}
-  },
-  "debate_summary": "2-3 sentence synthesis",
-  "key_risks": ["risk1", "risk2", "risk3"],
-  "recommended_actions": ["action1", "action2", "action3"]
-}"""
+    "financial_advisor": {
+        "icon": "💰",
+        "color": "from-emerald-500 to-emerald-700",
+        "en": {
+            "name": "Financial Advisor",
+            "title": "Cash Flow & Financial Health",
+            "description": "Evaluates affordability, income stability, emergency buffers, and financial risk."
         },
-    },
-
-    # ===== FREELANCER BOARD =====
-    "FREELANCER_BOARD": {
-        "name": "Freelancer Board",
-        "description": "Advisory panel for freelancers and solopreneurs",
-        "roles": [
-            {
-                "key": "Strategist",
-                "name": "BusinessStrategistAgent",
-                "title": "Business Strategist",
-                "icon": "🎯",
-                "color": "from-blue-500 to-blue-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are a Business Strategist advising a freelancer. You focus on business growth and positioning.
-
-Focus on:
-- Business model and revenue strategy
-- Client portfolio diversification
-- Market positioning as a freelancer
-- Long-term business sustainability
-
-Be strategic and growth-oriented.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Finance",
-                "name": "FinancialPlannerAgent",
-                "title": "Financial Planner",
-                "icon": "💵",
-                "color": "from-emerald-500 to-emerald-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are a Financial Planner advising a freelancer. You focus on income, expenses, and financial health.
-
-Focus on:
-- Income stability and diversification
-- Pricing strategy and rate negotiation
-- Tax implications and savings
-- Emergency fund and financial buffer
-
-Be practical about freelancer financial realities.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Client",
-                "name": "ClientRelationsAgent",
-                "title": "Client Relations Expert",
-                "icon": "🤝",
-                "color": "from-purple-500 to-purple-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.6,
-                "prompt": f"""You are a Client Relations Expert advising a freelancer. You focus on client management and reputation.
-
-Focus on:
-- Client relationship quality and trust
-- Reputation and referral potential
-- Scope creep and boundary setting
-- Communication and expectation management
-
-Be client-savvy and relationship-focused.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Wellness",
-                "name": "WellnessCoachAgent",
-                "title": "Wellness Coach",
-                "icon": "🧘",
-                "color": "from-amber-500 to-amber-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are a Wellness Coach advising a freelancer. You focus on work-life balance and burnout prevention.
-
-Focus on:
-- Workload sustainability
-- Burnout risk and stress levels
-- Personal time and boundaries
-- Long-term career satisfaction
-
-Be honest about the human cost of freelance decisions.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Risk",
-                "name": "RiskAnalystAgent",
-                "title": "Risk Analyst",
-                "icon": "🛡️",
-                "color": "from-red-500 to-red-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are a Risk Analyst advising a freelancer. You identify potential pitfalls in their business decisions.
-
-Focus on:
-- Contract and legal risks
-- Client payment risks
-- Market and demand risks
-- Overcommitment risks
-
-Be thorough about what could go wrong.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Devil",
-                "name": "DevilsAdvocateAgent",
-                "title": "Devil's Advocate",
-                "icon": "😈",
-                "color": "from-rose-500 to-rose-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.8,
-                "prompt": f"""You are the Devil's Advocate advising a freelancer. Challenge their assumptions about this decision.
-
-Be provocative and contrarian. Stress-test their thinking.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-        ],
-        "moderator": {
-            "key": "Moderator",
-            "name": "ModeratorAgent",
-            "title": "Board Moderator",
-            "icon": "⚖️",
-            "color": "from-indigo-500 to-indigo-700",
-            "model": MODEL_MOD,
-            "tokens": MODERATOR_TOKENS,
-            "temperature": 0.3,
-            "prompt": """You are the Board Moderator for a freelancer advisory panel. Synthesize perspectives into a final recommendation.
-
-You MUST output ONLY valid JSON (no markdown, no explanation):
-{
-  "final_decision": "APPROVE" or "REJECT" or "DEFER",
-  "confidence_score": 0-100,
-  "board_votes": {
-    "Strategist": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Finance": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Client": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Wellness": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Risk": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Devil": {"vote": "YES/NO/DEFER", "confidence": 0-100}
-  },
-  "debate_summary": "2-3 sentence synthesis",
-  "key_risks": ["risk1", "risk2", "risk3"],
-  "recommended_actions": ["action1", "action2", "action3"]
-}"""
+        "ur": {
+            "name": "مالی مشیر",
+            "title": "آمدن، اخراجات اور مالی استحکام",
+            "description": "آمدن کے استحکام، ماہانہ اخراجات، بچت اور مالیاتی خطرات کا باریک بینی سے جائزہ لیتا ہے۔"
         },
+        "roman-ur": {
+            "name": "Financial Mashir",
+            "title": "Cash Flow & Financial Health",
+            "description": "Income stability, mahana kharche, savings buffer aur financial risk ka jaiza leta hai."
+        }
     },
-
-    # ===== PRODUCT BOARD =====
-    "PRODUCT_BOARD": {
-        "name": "Product Board",
-        "description": "Product strategy panel for feature and roadmap decisions",
-        "roles": [
-            {
-                "key": "PM",
-                "name": "ProductManagerAgent",
-                "title": "Product Manager",
-                "icon": "📦",
-                "color": "from-blue-500 to-blue-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the Product Manager on a product advisory board. You evaluate features from a product strategy perspective.
-
-Focus on:
-- User needs and problem validation
-- Product-market fit impact
-- Feature prioritization and roadmap
-- Success metrics and KPIs
-
-Be user-centric and data-informed.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Engineer",
-                "name": "LeadEngineerAgent",
-                "title": "Lead Engineer",
-                "icon": "⚙️",
-                "color": "from-purple-500 to-purple-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the Lead Engineer on a product advisory board. You assess technical feasibility and engineering effort.
-
-Focus on:
-- Technical complexity and effort estimation
-- Architecture and scalability impact
-- Tech debt implications
-- Team capacity and skill requirements
-
-Be realistic about engineering constraints.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Designer",
-                "name": "UXDesignerAgent",
-                "title": "UX Designer",
-                "icon": "🎨",
-                "color": "from-pink-500 to-pink-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the UX Designer on a product advisory board. You evaluate user experience and design implications.
-
-Focus on:
-- User experience and usability
-- Design consistency and patterns
-- User journey and flow impact
-- Accessibility and inclusivity
-
-Be an advocate for the end user's experience.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Growth",
-                "name": "GrowthLeadAgent",
-                "title": "Growth Lead",
-                "icon": "📈",
-                "color": "from-emerald-500 to-emerald-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.7,
-                "prompt": f"""You are the Growth Lead on a product advisory board. You evaluate features for their growth and revenue impact.
-
-Focus on:
-- User acquisition and retention impact
-- Revenue and monetization potential
-- Competitive differentiation
-- Market expansion opportunities
-
-Be growth-minded and metrics-driven.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Risk",
-                "name": "RiskAnalystAgent",
-                "title": "Risk Analyst",
-                "icon": "🛡️",
-                "color": "from-red-500 to-red-700",
-                "model": MODEL_A,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.5,
-                "prompt": f"""You are the Risk Analyst on a product advisory board. You identify risks in product decisions.
-
-Focus on:
-- Security and privacy risks
-- Performance and reliability risks
-- User adoption risks
-- Competitive response risks
-
-Be thorough about product risks.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-            {
-                "key": "Devil",
-                "name": "DevilsAdvocateAgent",
-                "title": "Devil's Advocate",
-                "icon": "😈",
-                "color": "from-rose-500 to-rose-700",
-                "model": MODEL_B,
-                "tokens": SPECIALIST_TOKENS,
-                "temperature": 0.8,
-                "prompt": f"""You are the Devil's Advocate on a product advisory board. Challenge the feature proposal.
-
-Argue why this feature might be wrong, premature, or misguided. Stress-test the product thinking.
-{THINKING_INSTRUCTION}
-{VOTE_INSTRUCTION}"""
-            },
-        ],
-        "moderator": {
-            "key": "Moderator",
-            "name": "ModeratorAgent",
-            "title": "Board Moderator",
-            "icon": "⚖️",
-            "color": "from-indigo-500 to-indigo-700",
-            "model": MODEL_MOD,
-            "tokens": MODERATOR_TOKENS,
-            "temperature": 0.3,
-            "prompt": """You are the Board Moderator for a product advisory panel. Synthesize all perspectives.
-
-You MUST output ONLY valid JSON (no markdown, no explanation):
-{
-  "final_decision": "APPROVE" or "REJECT" or "DEFER",
-  "confidence_score": 0-100,
-  "board_votes": {
-    "PM": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Engineer": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Designer": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Growth": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Risk": {"vote": "YES/NO/DEFER", "confidence": 0-100},
-    "Devil": {"vote": "YES/NO/DEFER", "confidence": 0-100}
-  },
-  "debate_summary": "2-3 sentence synthesis",
-  "key_risks": ["risk1", "risk2", "risk3"],
-  "recommended_actions": ["action1", "action2", "action3"]
-}"""
+    "market_advisor": {
+        "icon": "📈",
+        "color": "from-orange-500 to-orange-700",
+        "en": {
+            "name": "Job Market Expert",
+            "title": "Market Demand & Industry Trends",
+            "description": "Assesses external market demand, earning potential, and competition."
         },
+        "ur": {
+            "name": "روزگار کی مارکیٹ کے ماہر",
+            "title": "مارکیٹ کی طلب اور رحجانات",
+            "description": "مارکیٹ میں اس شعبے کی حقیقی طلب، متوقع آمدن اور مسابقت کا تجزیہ کرتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Job Market Expert",
+            "title": "Market Demand & Industry Trends",
+            "description": "Market demand, earning potential aur industry ke muqable ka jaiza leta hai."
+        }
     },
+    "practical_advisor": {
+        "icon": "📋",
+        "color": "from-teal-500 to-teal-700",
+        "en": {
+            "name": "Practical Advisor",
+            "title": "Implementation & Daily Realities",
+            "description": "Considers daily execution feasibility, actual workload, and logistical realities."
+        },
+        "ur": {
+            "name": "عملی مشیر",
+            "title": "عملی نفاذ اور زمینی حقائق",
+            "description": "روزمرہ کے معمولات، کام کے حقیقی بوجھ اور عملی دشواریوں کا حقیقت پسندانہ جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Practical Mashir",
+            "title": "Implementation & Daily Realities",
+            "description": "Daily execution, actual workload aur ground reality ko mad-e-nazar rakhta hai."
+        }
+    },
+    "family_constraint_advisor": {
+        "icon": "🏡",
+        "color": "from-indigo-500 to-indigo-700",
+        "en": {
+            "name": "Family & Practical Advisor",
+            "title": "Family Responsibilities & Constraints",
+            "description": "Evaluates household obligations, dependents, and practical family commitments without stereotyping."
+        },
+        "ur": {
+            "name": "خاندانی اور عملی مشیر",
+            "title": "خاندانی ذمہ داریاں اور حدود",
+            "description": "گھریلو اخراجات، خاندان کے تعاون اور عملی مجبوریوں کا غیر جانبدارانہ جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Family & Practical Mashir",
+            "title": "Family Responsibilities & Constraints",
+            "description": "Ghar ke kharche, family responsibilities aur practical constraints ka jaiza leta hai."
+        }
+    },
+    "risk_analyst": {
+        "icon": "🛡️",
+        "color": "from-red-500 to-red-700",
+        "en": {
+            "name": "Risk Expert",
+            "title": "Downside & Failure Modes",
+            "description": "Identifies failure points, worst-case scenarios, reversibility, and uncertainty."
+        },
+        "ur": {
+            "name": "خطرات کے ماہر",
+            "title": "منفی اثرات اور غیر یقینی صورتحال",
+            "description": "ممکنہ ناکامی کے اسباب، بدترین حالات اور فیصلے کی واپسی کے امکانات کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Risk Expert",
+            "title": "Downside & Failure Modes",
+            "description": "Failure points, worst-case scenarios, reversibility aur uncertainty ka jaiza leta hai."
+        }
+    },
+    "critical_challenger": {
+        "icon": "⚡",
+        "color": "from-rose-500 to-rose-700",
+        "en": {
+            "name": "Critical Challenger",
+            "title": "Assumption Testing & Counterarguments",
+            "description": "Challenges consensus, uncovers hidden blind spots, and argues reasonable counterpoints."
+        },
+        "ur": {
+            "name": "مخالف نقطۂ نظر",
+            "title": "تنقیدی جائزہ اور متبادل زاویہ",
+            "description": "عام مفروضات کو چیلنج کرتا ہے، نظر انداز پہلوؤں کو سامنے لاتا ہے اور مضبوط جوابی دلیل دیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Mukhalif Raaye",
+            "title": "Assumption Testing & Counterarguments",
+            "description": "Assumptions ko challenge karta hai, blind spots samnay lata hai aur solid counter-argument deta hai."
+        }
+    },
+    "lead_advisor": {
+        "icon": "⚖️",
+        "color": "from-indigo-500 to-indigo-700",
+        "en": {
+            "name": "Lead Advisor",
+            "title": "Synthesis & Final Recommendation",
+            "description": "Synthesizes specialist perspectives into an actionable, balanced consultation report."
+        },
+        "ur": {
+            "name": "مرکزی مشیر",
+            "title": "مشاورتی خلاصہ اور حتمی رہنمائی",
+            "description": "تمام ماہرین کی آراء کا غیر جانبدارانہ تجزیہ اور حتمی عملی لائحۂ عمل مرتب کرتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Lead Mashir",
+            "title": "Synthesis & Final Recommendation",
+            "description": "Tamam mahireen ki aara ka balanced nichor aur final actionable mashwara tayar karta hai."
+        }
+    },
+    "academic_advisor": {
+        "icon": "🎓",
+        "color": "from-sky-500 to-sky-700",
+        "en": {
+            "name": "Academic Advisor",
+            "title": "Education Pathways & Credentials",
+            "description": "Focuses on curriculum rigor, degree value, prerequisites, and learning outcomes."
+        },
+        "ur": {
+            "name": "تعلیمی مشیر",
+            "title": "تعلیمی راستے اور اسناد",
+            "description": "نصاب کی اہمیت، ڈگری کی افادیت، تعلیمی تقاضوں اور سیکھنے کے عمل کا جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Taleemi Mashir",
+            "title": "Education Pathways & Credentials",
+            "description": "Degree ki value, curriculum rigor, prerequisites aur learning outcomes ka jaiza leta hai."
+        }
+    },
+    "opportunity_advisor": {
+        "icon": "🌟",
+        "color": "from-amber-500 to-amber-700",
+        "en": {
+            "name": "Opportunity Advisor",
+            "title": "Alternative Pathways & Scholarships",
+            "description": "Identifies overlooked alternatives, scholarships, and hidden upsides."
+        },
+        "ur": {
+            "name": "مواقع کے ماہر",
+            "title": "متبادل مواقع اور اسکالرشپس",
+            "description": "متبادل تعلیمی راستوں، اسکالرشپ اور پوشیدہ مفید مواقع کی نشاندہی کرتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Opportunity Expert",
+            "title": "Alternative Pathways & Scholarships",
+            "description": "Alternative pathways, scholarships aur hidden upsides ko highlight karta hai."
+        }
+    },
+    "freelance_advisor": {
+        "icon": "💼",
+        "color": "from-blue-500 to-blue-700",
+        "en": {
+            "name": "Freelance Advisor",
+            "title": "Freelance Strategy & Client Health",
+            "description": "Evaluates rates, client diversification, contract scope, and gig sustainability."
+        },
+        "ur": {
+            "name": "فری لانسنگ مشیر",
+            "title": "فری لانسنگ اور کلائنٹ تعلقات",
+            "description": "فری لانسنگ ریٹس، کلائنٹس کے ساتھ تعلقات، پروجیکٹ کے دائرہ کار اور پائیداری کا جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Freelance Mashir",
+            "title": "Freelance Strategy & Client Health",
+            "description": "Freelance rates, client diversification aur gig sustainability ka jaiza leta hai."
+        }
+    },
+    "workload_advisor": {
+        "icon": "🧘",
+        "color": "from-amber-500 to-amber-700",
+        "en": {
+            "name": "Work & Lifestyle Advisor",
+            "title": "Workload & Burnout Prevention",
+            "description": "Evaluates burnout risk, mental wellbeing, personal capacity, and sustainable pace."
+        },
+        "ur": {
+            "name": "طرزِ زندگی اور ذہنی سکون کے مشیر",
+            "title": "کام کا دباؤ اور توازن",
+            "description": "ذہنی دباؤ، تھکن کے خطرے، ذاتی صلاحیت اور کام و زندگی کے پائیدار توازن کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Work-Life Mashir",
+            "title": "Workload & Burnout Prevention",
+            "description": "Burnout risk, mental wellbeing aur work-life balance ka jaiza leta hai."
+        }
+    },
+    "business_strategist": {
+        "icon": "🎯",
+        "color": "from-blue-500 to-blue-700",
+        "en": {
+            "name": "Business Strategist",
+            "title": "Business Model & Positioning",
+            "description": "Evaluates business viability, unit economics, market positioning, and revenue models."
+        },
+        "ur": {
+            "name": "کاروباری حکمتِ عملی کے ماہر",
+            "title": "بزنس ماڈل اور پوزیشننگ",
+            "description": "کاروبار کے امکانات، منافع بخش ماڈل اور مارکیٹ میں برتری کی حکمتِ عملی کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Business Strategy Expert",
+            "title": "Business Model & Positioning",
+            "description": "Business viability, unit economics, market positioning aur revenue models ka jaiza leta hai."
+        }
+    },
+    "operations_advisor": {
+        "icon": "⚙️",
+        "color": "from-purple-500 to-purple-700",
+        "en": {
+            "name": "Operations Expert",
+            "title": "Operational Execution & Logistics",
+            "description": "Assesses execution bottlenecks, supply/logistics requirements, and team capacity."
+        },
+        "ur": {
+            "name": "آپریشنز کے ماہر",
+            "title": "عملی انتظامات اور لاجسٹکس",
+            "description": "کام کے بہاؤ، رسد کے انتظامات اور ٹیم کی آپریشنل صلاحیت کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Operations Expert",
+            "title": "Operational Execution & Logistics",
+            "description": "Execution bottlenecks, logistics aur operational capacity ka jaiza leta hai."
+        }
+    },
+    "product_advisor": {
+        "icon": "📦",
+        "color": "from-blue-500 to-blue-700",
+        "en": {
+            "name": "Product Advisor",
+            "title": "Product-Market Fit & Roadmap",
+            "description": "Evaluates user needs, feature validation, prioritization, and product strategy."
+        },
+        "ur": {
+            "name": "پروڈکٹ مشیر",
+            "title": "پروڈکٹ مارکیٹ فٹ اور ترجیحات",
+            "description": "صارفین کی ضرورت، فیچرز کی تصدیق اور پروڈکٹ حکمتِ عملی کا جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Product Mashir",
+            "title": "Product-Market Fit & Roadmap",
+            "description": "User needs, feature validation, prioritization aur product strategy ka jaiza leta hai."
+        }
+    },
+    "technology_advisor": {
+        "icon": "⚙️",
+        "color": "from-purple-500 to-purple-700",
+        "en": {
+            "name": "Technology Advisor",
+            "title": "Technical Feasibility & Architecture",
+            "description": "Assesses engineering complexity, architecture choices, scalability, and technical debt."
+        },
+        "ur": {
+            "name": "ٹیکنالوجی مشیر",
+            "title": "تکنیکی فزیبلٹی اور اسکیل ایبلٹی",
+            "description": "انجینئرنگ کی پیچیدگی، آرکیٹیکچر کے انتخابات اور تکنیکی پائیداری کا جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Technology Mashir",
+            "title": "Technical Feasibility & Architecture",
+            "description": "Engineering complexity, architecture choices aur tech debt ka jaiza leta hai."
+        }
+    },
+    "user_experience_advisor": {
+        "icon": "🎨",
+        "color": "from-pink-500 to-pink-700",
+        "en": {
+            "name": "User Experience Expert",
+            "title": "Usability & Customer Flow",
+            "description": "Advocates for usability, user journeys, friction reduction, and accessibility."
+        },
+        "ur": {
+            "name": "صارف کے تجربے کے ماہر",
+            "title": "استعمال میں آسانی اور یوزر فلو",
+            "description": "استعمال میں سہولت، یوزر جرنی اور صارف کی تسلی کے پہلوؤں کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "User Experience Expert",
+            "title": "Usability & Customer Flow",
+            "description": "Usability, user journeys, friction reduction aur customer flow ka jaiza leta hai."
+        }
+    },
+    "budget_advisor": {
+        "icon": "💵",
+        "color": "from-emerald-500 to-emerald-700",
+        "en": {
+            "name": "Budget Advisor",
+            "title": "Monthly Budget & Cash Management",
+            "description": "Focuses on day-to-day cash flow limits, savings discipline, and budget allocations."
+        },
+        "ur": {
+            "name": "بجٹ مشیر",
+            "title": "ماہانہ بجٹ اور بچت کا انتظام",
+            "description": "ماہانہ خرچ کی حد، بچت کے نظم و ضبط اور مالی وسائل کی درست تقسیم کا جائزہ لیتا ہے۔"
+        },
+        "roman-ur": {
+            "name": "Budget Mashir",
+            "title": "Monthly Budget & Cash Management",
+            "description": "Monthly cash limits, savings discipline aur budget allocation ka jaiza leta hai."
+        }
+    },
+    "future_planning_advisor": {
+        "icon": "🔮",
+        "color": "from-indigo-500 to-indigo-700",
+        "en": {
+            "name": "Future Planning Expert",
+            "title": "Long-Term Goals & Resilience",
+            "description": "Evaluates 3-5 year compounding effects, life milestones, and long-term security."
+        },
+        "ur": {
+            "name": "مستقبل کی منصوبہ بندی کے ماہر",
+            "title": "طویل مدتی اہداف اور تحفظ",
+            "description": "تین سے پانچ سال کے دور رس اثرات، خاندانی اہداف اور طویل مدتی تحفظ کا جائزہ لیتے ہیں۔"
+        },
+        "roman-ur": {
+            "name": "Future Planning Expert",
+            "title": "Long-Term Goals & Resilience",
+            "description": "3-5 year compounding effects, life milestones aur long-term security ka jaiza leta hai."
+        }
+    }
 }
 
 
-def get_board_config(template_key: str) -> Dict[str, Any]:
-    """Get the board configuration for a given template key."""
-    return BOARD_TEMPLATES.get(template_key, BOARD_TEMPLATES["STARTUP_BOARD"])
+# ---------------------------------------------------------------------------
+# Legacy Role Compatibility Mapping
+# ---------------------------------------------------------------------------
+LEGACY_ROLE_MAP: Dict[str, str] = {
+    "CEO": "business_strategist",
+    "CFO": "financial_advisor",
+    "CTO": "technology_advisor",
+    "CMO": "market_advisor",
+    "Risk": "risk_analyst",
+    "Devil": "critical_challenger",
+    "Moderator": "lead_advisor",
+    "HR": "practical_advisor",
+    "Manager": "career_advisor",
+    "Finance": "financial_advisor",
+    "Culture": "workload_advisor",
+    "Strategist": "business_strategist",
+    "Client": "market_advisor",
+    "Wellness": "workload_advisor",
+    "PM": "product_advisor",
+    "Engineer": "technology_advisor",
+    "Designer": "user_experience_advisor",
+    "Growth": "market_advisor",
+    "Advisor": "academic_advisor",
+    "Counselor": "career_advisor",
+    "Financial": "financial_advisor",
+    "Mentor": "practical_advisor",
+    "Peer": "opportunity_advisor",
+}
+
+
+# ---------------------------------------------------------------------------
+# Dynamic Consultation Councils (6 Specialists + 1 Lead Advisor)
+# ---------------------------------------------------------------------------
+COUNCILS: Dict[str, List[str]] = {
+    "career": [
+        "career_advisor",
+        "financial_advisor",
+        "market_advisor",
+        "practical_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "education": [
+        "academic_advisor",
+        "career_advisor",
+        "financial_advisor",
+        "opportunity_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "freelance": [
+        "freelance_advisor",
+        "financial_advisor",
+        "market_advisor",
+        "workload_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "business": [
+        "business_strategist",
+        "financial_advisor",
+        "market_advisor",
+        "operations_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "technology": [
+        "product_advisor",
+        "technology_advisor",
+        "user_experience_advisor",
+        "market_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "finance": [
+        "financial_advisor",
+        "budget_advisor",
+        "practical_advisor",
+        "future_planning_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+    "general": [
+        "career_advisor",
+        "financial_advisor",
+        "practical_advisor",
+        "family_constraint_advisor",
+        "risk_analyst",
+        "critical_challenger",
+    ],
+}
+
+
+def get_council_roles(domain: str, secondary_domains: Optional[List[str]] = None, user_text: str = "") -> List[str]:
+    """
+    Assembles the 6 specialist roles for the consultation.
+    Supports contextual role substitution (e.g. including family_constraint_advisor
+    when family obligations, household support, or cross-cutting dilemmas are present).
+    """
+    text_lower = (user_text or "").lower()
+    has_family = any(w in text_lower for w in ["family", "ghar", "walay", "walidain", "rishta", "bachon", "ghar ka kharcha", "bhai", "ammi", "abu"])
+    
+    # If general or cross-cutting with family constraints
+    if domain == "general" or has_family:
+        if domain == "education":
+            return ["academic_advisor", "career_advisor", "financial_advisor", "family_constraint_advisor", "risk_analyst", "critical_challenger"]
+        elif domain == "freelance":
+            return ["freelance_advisor", "financial_advisor", "practical_advisor", "family_constraint_advisor", "risk_analyst", "critical_challenger"]
+        elif domain == "business":
+            return ["business_strategist", "financial_advisor", "practical_advisor", "family_constraint_advisor", "risk_analyst", "critical_challenger"]
+        else:
+            return ["career_advisor", "financial_advisor", "practical_advisor", "family_constraint_advisor", "risk_analyst", "critical_challenger"]
+
+    return COUNCILS.get(domain, COUNCILS["career"])
+
+
+# ---------------------------------------------------------------------------
+# Pakistani Context & Role Prompts
+# ---------------------------------------------------------------------------
+PAKISTANI_CONTEXT_PROMPT = """
+PAKISTANI CONTEXT INTELLIGENCE:
+- Currency & Financial: Understand Pakistani terms naturally without asking the user to convert:
+  * 90k = 90,000 PKR; 1.5 lakh = 150,000 PKR; 2 lakh = 200,000 PKR; 1 crore = 10,000,000 PKR; hazaar = thousand.
+  * Understand concepts: ghar ka kharcha (essential household expenses), udhaar / qarz (debt/loans), installment / qist, committee (kameti / ROSCA savings pool), emergency savings buffer.
+- Education: Understand Pakistani educational stages:
+  * Matric (10th), Inter / HSSC (FSc Pre-Medical, FSc Pre-Engineering, ICS, FA, I.Com), board examinations, supply (supplementary exam), marks improvement, entry tests (MDCAT, ECAT), university admissions, GPA/CGPA, semester system.
+- Careers: Understand Pakistani career realities:
+  * Freelancing (Upwork, Fiverr, direct international clients), remote USD/foreign contracts, local corporate / software house salaries, government job (CSS, FPSC, PPSC, gas/bank) vs private sector, family dependencies, abroad opportunities (Dubai/Gulf, UK, Europe visa).
+- Family & Social:
+  * Recognize family expectations (ghar walay, walidain, rishta, shaadi, family support) objectively without stereotyping. Reason strictly from constraints provided by the user.
+"""
+
+def get_language_prompt_instruction(lang: str) -> str:
+    if lang == "ur":
+        return """
+LANGUAGE INSTRUCTION (URDU):
+آپ کو مکمل طور پر اردو زبان میں جواب دینا ہے۔ کسی انگریزی جواب کا ترجمہ نہ کریں بلکہ براہِ راست سلیس اور باوقار اردو میں سوچیں اور لکھیں۔ غیر ضروری طور پر مشکل یا فرسودہ الفاظ سے گریز کریں۔ جہاں پاکستانی بول چال میں رائج انگریزی الفاظ (جیسے جاب، سیلری، فری لانسنگ، بجٹ، پروجیکٹ، کلائنٹ، رسک) فطری ہوں، وہ استعمال کریں۔
+"""
+    elif lang == "roman-ur":
+        return """
+LANGUAGE INSTRUCTION (ROMAN URDU):
+Aap ko natural, modern Pakistani Roman Urdu mein jawab dena hai. English se translate mat karein, seedha Roman Urdu mein likhein. Overly literary ya formal Urdu use na karein. Natural educated Pakistani conversational style apnaayein jahan technical/professional terms (salary, job, freelancing, budget, client, risk, career) naturally use hoti hain.
+"""
+    else:
+        return """
+LANGUAGE INSTRUCTION (ENGLISH):
+Respond in clear, professional English while demonstrating full fluency with Pakistani financial, educational, and cultural context.
+"""
+
+
+def get_specialist_prompt(role_key: str, lang: str) -> str:
+    """Generates the concise, lens-specific system prompt for a specialist in Round 1."""
+    role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
+    role_name = role_meta.get(lang, role_meta["en"])["name"]
+    role_desc = role_meta.get(lang, role_meta["en"])["description"]
+    lang_inst = get_language_prompt_instruction(lang)
+
+    lens_instructions = {
+        "career_advisor": "Focus strictly on long-term trajectory, skills development, employability, and growth optionality.",
+        "financial_advisor": "Focus strictly on cash flow, income stability, downside affordability, savings buffer, and opportunity cost.",
+        "market_advisor": "Focus strictly on market demand, competitive dynamics, industry hiring trends, and realistic earning ceiling.",
+        "practical_advisor": "Focus strictly on daily reality, workload feasibility, execution friction, and logistics.",
+        "family_constraint_advisor": "Focus strictly on household obligations, dependents' support, and practical family constraints supplied by the user.",
+        "risk_analyst": "Focus strictly on failure modes, downside severity, uncertainty, and reversibility of the decision.",
+        "critical_challenger": "Your role is to test emerging consensus. Challenge hidden assumptions, expose overconfidence, and present the strongest reasonable opposing case.",
+        "academic_advisor": "Focus strictly on academic prerequisites, educational quality, learning outcomes, and degree marketability.",
+        "opportunity_advisor": "Focus strictly on alternative pathways, scholarships, hidden upsides, and unconventional options.",
+        "freelance_advisor": "Focus strictly on rate negotiation, client diversification, contract scope, and freelance career sustainability.",
+        "workload_advisor": "Focus strictly on personal capacity, burnout risk, mental wellbeing, and sustainable workload pace.",
+        "business_strategist": "Focus strictly on unit economics, business model viability, positioning, and scalable revenue.",
+        "operations_advisor": "Focus strictly on execution capacity, logistics, supply bottlenecks, and operational realistic load.",
+        "product_advisor": "Focus strictly on product-market fit, user problem validation, and roadmap prioritization.",
+        "technology_advisor": "Focus strictly on engineering complexity, technical feasibility, architecture choices, and tech debt.",
+        "user_experience_advisor": "Focus strictly on usability, user journeys, customer satisfaction, and adoption friction.",
+        "budget_advisor": "Focus strictly on monthly cash allocation, expenditure discipline, and buffer preservation.",
+        "future_planning_advisor": "Focus strictly on 3-5 year life milestones, compounding advantages, and future security.",
+    }
+
+    specific_lens = lens_instructions.get(role_key, "Provide objective specialist counsel.")
+
+    return f"""You are {role_name} on Mashwara AI.
+{role_desc}
+{specific_lens}
+
+{PAKISTANI_CONTEXT_PROMPT}
+{lang_inst}
+
+RULES:
+1. Do NOT write long essays. Keep your rationale to 2-4 tight, actionable points.
+2. Formulate your reasoning DIRECTLY in the target language.
+3. You MUST end your response with a structured JSON block in this exact schema:
+
+```json
+{{
+  "position": "support | oppose | uncertain",
+  "confidence": 0-100,
+  "rationale": [
+    "point 1",
+    "point 2"
+  ],
+  "key_concern": "Single biggest concern or downside",
+  "assumptions": [
+    "Core assumption made"
+  ],
+  "question_that_matters": "The single most decisive question"
+}}
+```
+"""
+
+
+def get_rebuttal_prompt(role_key: str, lang: str, peer_summary: str) -> str:
+    """Generates the prompt for a specialist participating in Round 2 rebuttal."""
+    role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
+    role_name = role_meta.get(lang, role_meta["en"])["name"]
+    lang_inst = get_language_prompt_instruction(lang)
+
+    return f"""You are {role_name} participating in Round 2 Deliberation on Mashwara AI.
+
+Below is the summary of key positions and disagreements from your fellow specialists:
+{peer_summary}
+
+{lang_inst}
+
+YOUR TASK:
+1. Review where your colleagues disagree with your lens.
+2. Identify the single strongest point made by a colleague that challenges your view.
+3. State whether your perspective changed, held firm, or softened.
+4. Give your FINAL revised position and confidence.
+
+Keep your response short and decisive (under 120 words). You MUST end with this JSON block:
+
+```json
+{{
+  "challenge_to": "Role name you most disagree with or are addressing",
+  "rebuttal": "Short, sharp counterpoint or clarification",
+  "changed_mind_on": "What point changed or refined your thinking, if any",
+  "final_position": "support | oppose | uncertain",
+  "final_confidence": 0-100
+}}
+```
+"""
+
+
+def get_lead_advisor_prompt(lang: str, immutable_votes_summary: str) -> str:
+    """Generates the synthesis prompt for the Lead Advisor."""
+    lang_inst = get_language_prompt_instruction(lang)
+
+    if lang == "ur":
+        headings_guide = """
+رپورٹ کے لازمی حصے (اردو عنوانات):
+- خلاصہ (Summary)
+- حتمی مشورہ (Final Mashwara)
+- اس کی وجہ (Why)
+- ماہرین کہاں متفق ہیں (Where Experts Agree)
+- اختلاف کہاں ہے (Where Experts Disagree)
+- اہم خطرات (Important Risks)
+- اہم مفروضے (Important Assumptions)
+- اگلے اقدامات (Next Steps)
+- کن حالات میں یہ مشورہ بدل سکتا ہے (What Could Change This Recommendation)
+"""
+    elif lang == "roman-ur":
+        headings_guide = """
+Report ke mandatory sections (Roman Urdu headings):
+- Khulasa (Summary)
+- Final Mashwara (Final Recommendation)
+- Kyun (Why)
+- Mahireen kahan agree karte hain (Where Experts Agree)
+- Ikhtilaf kahan hai (Where Experts Disagree)
+- Aham Khatray (Important Risks)
+- Important Assumptions
+- Aglay Qadam (Next Steps)
+- Kis surat mein yeh mashwara badal sakta hai (What Could Change This Recommendation)
+"""
+    else:
+        headings_guide = """
+Mandatory report sections (English headings):
+- Summary
+- Final Recommendation
+- Why
+- Where Experts Agree
+- Where Experts Disagree
+- Key Risks
+- Important Assumptions
+- Next Steps
+- What Would Change This Recommendation
+"""
+
+    return f"""You are the Lead Advisor (مرکزی مشیر / Lead Mashir) on Mashwara AI.
+Your job is to synthesize the specialist deliberation into a definitive, balanced consultation report.
+
+CRITICAL VOTING RULE:
+You MUST respect the immutable final specialist votes provided below. You are NOT allowed to invent, fabricate, or change their votes.
+Specialist Votes:
+{immutable_votes_summary}
+
+{PAKISTANI_CONTEXT_PROMPT}
+{lang_inst}
+{headings_guide}
+
+OUTPUT FORMAT:
+You MUST output ONLY valid JSON matching this schema:
+```json
+{{
+  "final_decision": "APPROVE | REJECT | DEFER",
+  "confidence_score": 0-100,
+  "debate_summary": "Comprehensive markdown text containing all the required headings and analysis in the target language",
+  "key_risks": [
+    "Risk 1",
+    "Risk 2",
+    "Risk 3"
+  ],
+  "recommended_actions": [
+    "Action 1",
+    "Action 2",
+    "Action 3"
+  ]
+}}
+```
+"""
+
+
+# ---------------------------------------------------------------------------
+# Backward Compatibility Helpers
+# ---------------------------------------------------------------------------
+def get_board_config(template_key: str, lang: str = "ur", user_text: str = "") -> Dict[str, Any]:
+    """
+    Returns the board configuration dictionary compatible with existing callers.
+    Resolves legacy template keys into dynamic councils.
+    """
+    domain_map = {
+        "STUDENT_BOARD": "education",
+        "HIRING_BOARD": "career",
+        "FREELANCER_BOARD": "freelance",
+        "STARTUP_BOARD": "business",
+        "PRODUCT_BOARD": "technology",
+    }
+    domain = domain_map.get(template_key, "career")
+    role_keys = get_council_roles(domain, user_text=user_text)
+
+    roles = []
+    for rk in role_keys:
+        meta = ROLE_METADATA.get(rk, ROLE_METADATA["career_advisor"])
+        lang_data = meta.get(lang, meta.get("en", {}))
+        roles.append({
+            "key": rk,
+            "role_id": rk,
+            "name": lang_data.get("name", rk),
+            "title": lang_data.get("title", ""),
+            "description": lang_data.get("description", ""),
+            "icon": meta.get("icon", "👔"),
+            "color": meta.get("color", "from-blue-500 to-blue-700"),
+            "model": SPECIALIST_MODEL,
+            "tokens": SPECIALIST_TOKENS,
+            "prompt": get_specialist_prompt(rk, lang),
+        })
+
+    mod_meta = ROLE_METADATA["lead_advisor"]
+    mod_lang = mod_meta.get(lang, mod_meta["en"])
+    moderator = {
+        "key": "lead_advisor",
+        "role_id": "lead_advisor",
+        "name": mod_lang.get("name", "Lead Advisor"),
+        "title": mod_lang.get("title", "Lead Advisor"),
+        "description": mod_lang.get("description", ""),
+        "icon": mod_meta.get("icon", "⚖️"),
+        "color": mod_meta.get("color", "from-indigo-500 to-indigo-700"),
+        "model": LEAD_ADVISOR_MODEL,
+        "tokens": LEAD_ADVISOR_TOKENS,
+        "prompt": get_lead_advisor_prompt(lang, ""),
+    }
+
+    return {
+        "name": f"Mashwara Council ({domain.capitalize()})",
+        "domain": domain,
+        "roles": roles,
+        "moderator": moderator,
+    }
 
 
 def get_role_keys(template_key: str) -> list:
-    """Get the list of role keys for a template (used by frontend for dynamic rendering)."""
-    config = get_board_config(template_key)
-    return [role["key"] for role in config["roles"]]
+    domain_map = {
+        "STUDENT_BOARD": "education",
+        "HIRING_BOARD": "career",
+        "FREELANCER_BOARD": "freelance",
+        "STARTUP_BOARD": "business",
+        "PRODUCT_BOARD": "technology",
+    }
+    domain = domain_map.get(template_key, "career")
+    return get_council_roles(domain)

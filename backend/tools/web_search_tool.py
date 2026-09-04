@@ -15,6 +15,11 @@ import json
 import httpx
 from mcp.server.fastmcp import FastMCP
 
+try:
+    from agents.board_config import SEARCH_MODEL
+except ImportError:
+    SEARCH_MODEL = "gemini-3.1-flash-lite"
+
 # ---------------------------------------------------------------------------
 # Initialize the MCP server
 # ---------------------------------------------------------------------------
@@ -74,7 +79,7 @@ async def _perform_search(query: str) -> str:
             if api_key:
                 # Use Gemini's grounding with Google Search
                 response = await client.post(
-                    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/{SEARCH_MODEL}:generateContent",
                     params={"key": api_key},
                     json={
                         "contents": [

@@ -1,13 +1,16 @@
 /**
  * MeetingCanvas — Premium board meeting canvas
  * Full-screen slide-over with tabbed Report / Deliberation views.
+ * Refactored to delegate presentation to reusable MashwaraResultView,
+ * with Share Mashwara link creation and vector PDF export.
  */
 
 import { useState } from "react";
-import AgentStream from "./AgentStream";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { useTranslation } from "../i18n";
+import { useAuthStore } from "../store/authStore";
+import { createSharedMashwara, type RoleInfo } from "../api/client";
+import MashwaraResultView from "./MashwaraResultView";
+import { exportMashwaraPdf } from "../utils/pdfExport";
 
 interface AgentStreamState {
   status: "idle" | "thinking" | "done" | "waiting";
@@ -23,7 +26,8 @@ interface MeetingCanvasProps {
   isProcessing?: boolean;
   template: string;
   decisionTitle?: string;
-  rolesInfo?: any[];
+  rolesInfo?: RoleInfo[];
+  meetingId?: string;
 }
 
 function token(key: string | undefined, t: any) {
@@ -33,9 +37,6 @@ function token(key: string | undefined, t: any) {
       label: t.votes.approve,
       icon: "✓",
       pill: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 ring-emerald-500/30",
-      bar: "bg-emerald-500",
-      glow: "shadow-emerald-500/20",
-      ring: "stroke-emerald-500"
     };
   }
   if (k === "NO" || k === "REJECT") {
@@ -43,86 +44,120 @@ function token(key: string | undefined, t: any) {
       label: t.votes.reject,
       icon: "✗",
       pill: "bg-red-500/15 text-red-600 dark:text-red-400 ring-red-500/30",
-      bar: "bg-red-500",
-      glow: "shadow-red-500/20",
-      ring: "stroke-red-500"
     };
   }
   return {
     label: t.votes.defer,
     icon: "⏸",
     pill: "bg-amber-500/15 text-amber-600 dark:text-amber-400 ring-amber-500/30",
-    bar: "bg-amber-500",
-    glow: "shadow-amber-500/20",
-    ring: "stroke-amber-500"
   };
 }
 
-// ─── Animated confidence ring ─────────────────────────────────────────────────
-function ConfidenceRing({ value, colorClass }: { value: number; colorClass: string }) {
-  const r = 44;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (value / 100) * circ;
-  return (
-    <svg width="110" height="110" className="-rotate-90 drop-shadow-lg">
-      <circle cx="55" cy="55" r={r} fill="none" stroke="currentColor" strokeWidth="7" className="text-slate-200 dark:text-slate-800" />
-      <circle cx="55" cy="55" r={r} fill="none" strokeWidth="7" strokeLinecap="round" className={colorClass}
-        strokeDasharray={circ} strokeDashoffset={offset} style={{ transition: "stroke-dashoffset 1.4s ease-out" }} />
-    </svg>
-  );
-}
-
-// ─── Vote tally bar ───────────────────────────────────────────────────────────
-function VoteTally({ votes, t }: { votes: Record<string, { vote: string; confidence: number }>; t: any }) {
-  const counts = { YES: 0, NO: 0, DEFER: 0 };
-  Object.values(votes || {}).forEach(v => {
-    const k = (v.vote || "").toUpperCase();
-    if (k === "YES" || k === "APPROVE") counts.YES++;
-    else if (k === "NO" || k === "REJECT") counts.NO++;
-    else counts.DEFER++;
-  });
-  const total = counts.YES + counts.NO + counts.DEFER;
-  const pct = (n: number) => total ? Math.round((n / total) * 100) : 0;
-
-  return (
-    <div className="space-y-2">
-      {([[t.votes.approve, counts.YES, "bg-emerald-500", "text-emerald-600 dark:text-emerald-400"],
-         [t.votes.reject,  counts.NO,  "bg-red-500",     "text-red-600 dark:text-red-400"],
-         [t.votes.defer, counts.DEFER, "bg-amber-500", "text-amber-600 dark:text-amber-400"]] as const).map(([label, n, barCls, txtCls]) => (
-        <div key={label} className="flex items-center gap-3">
-          <span className={`text-[10px] font-bold w-16 truncate ${txtCls}`}>{label}</span>
-          <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className={`h-full rounded-full transition-all duration-700 ${barCls}`} style={{ width: `${pct(n)}%` }} />
-          </div>
-          <span className="text-[10px] text-slate-500 w-6 text-right">{n}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Main Component ────────────────────────────────────────────────────────────
 export default function MeetingCanvas({
-  isOpen, onClose, report, streams, isProcessing,
-  template, decisionTitle, rolesInfo,
+  isOpen,
+  onClose,
+  report,
+  streams,
+  isProcessing,
+  template,
+  decisionTitle,
+  rolesInfo,
+  meetingId,
 }: MeetingCanvasProps) {
   const [tab, setTab] = useState<"report" | "deliberation">("deliberation");
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const tokenVal = useAuthStore((state) => state.token);
+
+  // Sharing state
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareError, setShareError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [isGuestConfirmOpen, setIsGuestConfirmOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
 
   if (!isOpen) return null;
 
   const defaultTitle = t.canvas.boardMeeting;
   const displayDecisionTitle = decisionTitle || defaultTitle;
-
-  const roles = rolesInfo?.filter((r: any) => r.key !== "Moderator") || [];
-  const moderator = rolesInfo?.find((r: any) => r.key === "Moderator");
-  const activeStreams = streams ? Object.keys(streams).filter(k => k !== "_roles" && streams[k]?.status !== "idle") : [];
-  const doneCount = activeStreams.filter(k => streams![k]?.status === "done").length;
-  const totalAgents = roles.length;
-  const decStyle = token(report?.final_decision, t);
   const hasReport = !!report;
-
+  const decStyle = token(report?.final_decision, t);
   const templateLabel = t.templates[template]?.name || template.replace(/_BOARD$/, "").replace(/_/g, " ");
+
+  const roles = rolesInfo?.filter((r: any) => r.key !== "Moderator" && r.key !== "lead_advisor" && !r.is_moderator) || [];
+  const activeStreams = streams ? Object.keys(streams).filter((k) => k !== "_roles" && streams[k]?.status !== "idle") : [];
+  const doneCount = activeStreams.filter((k) => streams![k]?.status === "done").length;
+  const totalAgents = roles.length;
+
+  const executeShare = async () => {
+    setIsSharing(true);
+    setShareError(null);
+    try {
+      let payload: any = {
+        language: language,
+        decision_title: displayDecisionTitle,
+      };
+
+      const effMeetingId = meetingId || report?.meeting_id;
+      if (tokenVal && effMeetingId) {
+        payload.meeting_id = effMeetingId;
+      } else {
+        payload.snapshot = {
+          decision_title: displayDecisionTitle,
+          language: language,
+          template: template,
+          roles: rolesInfo || [],
+          streams: streams || {},
+          report: report || {},
+        };
+      }
+
+      const res = await createSharedMashwara(payload);
+      const fullUrl = `${window.location.origin}/m/${res.share_id}`;
+      setShareUrl(fullUrl);
+      setIsShareModalOpen(true);
+
+      // Auto-copy to clipboard if supported
+      try {
+        await navigator.clipboard.writeText(fullUrl);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 3000);
+      } catch {
+        // Clipboard write may fail silently in some contexts
+      }
+    } catch (err) {
+      console.error("Failed to share mashwara:", err);
+      setShareError(t.share.shareFailed);
+      setTimeout(() => setShareError(null), 6000);
+    } finally {
+      setIsSharing(false);
+      setIsGuestConfirmOpen(false);
+    }
+  };
+
+  const handleShareClick = () => {
+    // Guest user requires explicit confirmation notice before saving snapshot
+    if (!tokenVal) {
+      setIsGuestConfirmOpen(true);
+    } else {
+      executeShare();
+    }
+  };
+
+  const handleExportPdf = async () => {
+    if (isExportingPdf) return;
+    setIsExportingPdf(true);
+    try {
+      await exportMashwaraPdf(displayDecisionTitle, {
+        elementId: "mashwara-canvas-export",
+      });
+    } catch (err) {
+      console.error("Failed to export PDF:", err);
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
@@ -131,7 +166,6 @@ export default function MeetingCanvas({
 
       {/* Panel */}
       <div className="relative w-full sm:w-[92vw] md:w-[680px] lg:w-[820px] xl:w-[900px] h-full bg-white dark:bg-[#0a0d18] shadow-2xl flex flex-col border-l border-slate-200/80 dark:border-white/[0.06] animate-slide-left">
-
         {/* ── Header ── */}
         <div className="flex-shrink-0 px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -148,24 +182,93 @@ export default function MeetingCanvas({
             {/* Live progress pill */}
             {isProcessing ? (
               <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-full ring-1 ring-blue-500/20">
-                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
                 {doneCount}/{totalAgents} {t.canvas.complete}
               </span>
             ) : hasReport ? (
-              <span className={`hidden sm:flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ring-1 ${decStyle.pill}`}>
-                {decStyle.icon} {decStyle.label}
-              </span>
+              <>
+                <span className={`hidden sm:flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ring-1 ${decStyle.pill}`}>
+                  {decStyle.icon} {decStyle.label}
+                </span>
+
+                {/* Share Button */}
+                <button
+                  onClick={handleShareClick}
+                  disabled={isSharing}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 border border-blue-500/20 text-blue-600 dark:text-blue-400 transition-all shadow-sm"
+                  title={t.share.shareMashwara}
+                >
+                  {isSharing ? (
+                    <svg className="animate-spin w-3.5 h-3.5" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                    </svg>
+                  )}
+                  <span className="hidden sm:inline">{t.share.shareMashwara}</span>
+                </button>
+
+                {/* PDF Export Button */}
+                <button
+                  onClick={handleExportPdf}
+                  disabled={isExportingPdf}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+                  title={t.share.exportPdf}
+                >
+                  {isExportingPdf ? (
+                    <>
+                      <svg className="animate-spin w-3.5 h-3.5 text-blue-500" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">{t.share.exportingPdf}</span>
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span className="hidden sm:inline text-[11px]">{t.share.exportPdf}</span>
+                    </>
+                  )}
+                </button>
+              </>
             ) : null}
 
-            <button onClick={onClose} className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors" aria-label={t.common.close}>
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+              aria-label={t.common.close}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
             </button>
           </div>
         </div>
 
+        {/* Localized Share Error Banner */}
+        {shareError && (
+          <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center justify-between animate-fade-in">
+            <div className="flex items-center gap-2">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>{shareError}</span>
+            </div>
+            <button onClick={() => setShareError(null)} className="p-1 hover:opacity-75">✕</button>
+          </div>
+        )}
+
         {/* ── Tabs ── */}
         <div className="flex-shrink-0 px-4 sm:px-6 flex gap-1 border-b border-slate-200 dark:border-white/[0.06] bg-white/50 dark:bg-transparent">
-          {(["deliberation", "report"] as const).map(tTab => (
+          {(["deliberation", "report"] as const).map((tTab) => (
             <button
               key={tTab}
               onClick={() => setTab(tTab)}
@@ -185,230 +288,140 @@ export default function MeetingCanvas({
           ))}
         </div>
 
-        {/* ── Scroll Content ── */}
+        {/* ── Scroll Content (reusing MashwaraResultView) ── */}
         <div className="flex-1 overflow-y-auto custom-scrollbar">
-
-          {/* ════ DELIBERATION TAB ════ */}
-          {tab === "deliberation" && (
-            <div className="p-4 sm:p-6 space-y-4 pb-24">
-
-              {/* Empty loading */}
-              {(!streams || activeStreams.length === 0) && isProcessing && (
-                <div className="flex flex-col items-center justify-center gap-4 mt-16 text-center">
-                  <div className="w-14 h-14 rounded-2xl bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center text-2xl animate-pulse">🏛️</div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900 dark:text-white">{t.canvas.callingToOrder}</p>
-                    <p className="text-xs text-slate-500 mt-1">{t.canvas.agentsBriefing}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Progress bar */}
-              {totalAgents > 0 && (
-                <div className="flex items-center gap-3 py-2">
-                  <span className="text-[11px] text-slate-500 whitespace-nowrap">{doneCount}/{totalAgents} {t.canvas.agentsComplete}</span>
-                  <div className="flex-1 h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${totalAgents ? (doneCount / totalAgents) * 100 : 0}%` }} />
-                  </div>
-                  {isProcessing
-                    ? <span className="text-[11px] text-blue-500 font-medium whitespace-nowrap">{t.canvas.inProgress}</span>
-                    : doneCount > 0 && <span className="text-[11px] text-emerald-500 font-medium whitespace-nowrap">{t.canvas.complete}</span>}
-                </div>
-              )}
-
-              {/* Agent Cards Grid */}
-              {activeStreams.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {roles.map((role: any) => {
-                    const stream = streams![role.key];
-                    if (!stream || stream.status === "idle") return null;
-                    return (
-                      <AgentStream
-                        key={role.key}
-                        role={role}
-                        thinking={stream.thinking}
-                        text={stream.text}
-                        status={stream.status}
-                        voteData={report?.board_votes?.[role.key]}
-                      />
-                    );
-                  })}
-
-                  {/* Moderator */}
-                  {moderator && streams?.[moderator.key] && streams[moderator.key].status !== "idle" && (
-                    <div className="sm:col-span-2">
-                      <AgentStream
-                        key={moderator.key}
-                        role={moderator}
-                        thinking={streams[moderator.key].thinking}
-                        text={streams[moderator.key].text}
-                        status={streams[moderator.key].status}
-                        voteData={undefined}
-                        isModerator
-                      />
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Prompt to switch to report */}
-              {hasReport && doneCount === totalAgents && totalAgents > 0 && (
-                <div
-                  onClick={() => setTab("report")}
-                  className="mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
-                >
-                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{t.canvas.viewReportReady}</span>
-                  <svg className="w-3.5 h-3.5 text-blue-500 rtl:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ════ REPORT TAB ════ */}
-          {tab === "report" && hasReport && (
-            <div className="p-4 sm:p-6 space-y-5 pb-24">
-
-              {/* Hero decision card */}
-              <div className={`rounded-2xl p-5 sm:p-7 bg-gradient-to-br border ring-1 ${decStyle.pill.includes("emerald") ? "from-emerald-50 to-white dark:from-emerald-950/30 dark:to-transparent border-emerald-200 dark:border-emerald-500/20 ring-emerald-500/10" : decStyle.pill.includes("red") ? "from-red-50 to-white dark:from-red-950/30 dark:to-transparent border-red-200 dark:border-red-500/20 ring-red-500/10" : "from-amber-50 to-white dark:from-amber-950/30 dark:to-transparent border-amber-200 dark:border-amber-500/20 ring-amber-500/10"} shadow-lg ${decStyle.glow}`}>
-                <div className="flex flex-col sm:flex-row items-center sm:items-start gap-5">
-                  {/* Confidence ring */}
-                  <div className="relative flex-shrink-0">
-                    <ConfidenceRing value={report.confidence_score ?? 0} colorClass={decStyle.ring} />
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className={`text-2xl font-extrabold ${decStyle.pill.split(" ")[1]}`}>{report.confidence_score}%</span>
-                      <span className="text-[9px] text-slate-500 uppercase tracking-wider">{t.canvas.confidence}</span>
-                    </div>
-                  </div>
-                  {/* Text info */}
-                  <div className="flex-1 text-center sm:text-start">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">{templateLabel} • {t.canvas.boardDecision}</p>
-                    <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mb-3 leading-snug">{report.decision_title || displayDecisionTitle}</h1>
-                    <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ring-1 ${decStyle.pill}`}>
-                      <span>{decStyle.icon}</span>{decStyle.label}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Vote tally */}
-                {report.board_votes && Object.keys(report.board_votes).length > 0 && (
-                  <div className="mt-6 pt-5 border-t border-slate-200 dark:border-white/[0.06]">
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-semibold">{t.canvas.boardVotes}</p>
-                    <div className="flex flex-wrap gap-2 mb-4">
-                      {Object.entries(report.board_votes).map(([agent, v]: any) => {
-                        const vt = token(v.vote, t);
-                        return (
-                          <div key={agent} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${vt.pill} text-[11px] font-semibold`}>
-                            <span>{vt.icon}</span>
-                            <span className="text-slate-700 dark:text-slate-300">{t.agents[agent]?.title || agent}</span>
-                            <span className="text-slate-400 font-normal">{v.confidence}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                    <VoteTally votes={report.board_votes} t={t} />
-                  </div>
-                )}
-              </div>
-
-              {/* Consensus summary */}
-              {report.debate_summary && (
-                <div className="rounded-xl bg-slate-50 dark:bg-white/[0.03] border border-slate-200 dark:border-white/[0.06] p-4 sm:p-5">
-                  <p className="text-[10px] text-slate-500 uppercase tracking-widest font-semibold mb-3">{t.canvas.consensusSummary}</p>
-                  <div className="prose prose-sm prose-slate dark:prose-invert max-w-none text-slate-700 dark:text-slate-300 leading-relaxed border-l-2 rtl:border-l-0 rtl:border-r-2 border-blue-400/40 pl-4 rtl:pl-0 rtl:pr-4">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{report.debate_summary}</ReactMarkdown>
-                  </div>
-                </div>
-              )}
-
-              {/* Risks + Actions */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Key Risks */}
-                {report.key_risks?.length > 0 && (
-                  <div className="rounded-xl bg-red-50/60 dark:bg-red-950/20 border border-red-200/60 dark:border-red-500/15 p-4 sm:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-5 h-5 rounded-md bg-red-100 dark:bg-red-500/20 flex items-center justify-center">
-                        <svg className="w-3 h-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                      </div>
-                      <p className="text-[10px] text-red-600 dark:text-red-400 uppercase tracking-widest font-bold">{t.canvas.keyRisks}</p>
-                    </div>
-                    <ul className="space-y-2">
-                      {report.key_risks.map((risk: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                          <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-red-400 dark:bg-red-500 flex-shrink-0" />
-                          {risk}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Recommended Actions */}
-                {report.recommended_actions?.length > 0 && (
-                  <div className="rounded-xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-500/15 p-4 sm:p-5">
-                    <div className="flex items-center gap-2 mb-3">
-                      <div className="w-5 h-5 rounded-md bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center">
-                        <svg className="w-3 h-3 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                      </div>
-                      <p className="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-widest font-bold">{t.canvas.recommendedActions}</p>
-                    </div>
-                    <ol className="space-y-2">
-                      {report.recommended_actions.map((action: string, i: number) => (
-                        <li key={i} className="flex items-start gap-2.5 text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                          <span className="flex-shrink-0 w-4 h-4 rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-[9px] font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
-                          {action}
-                        </li>
-                      ))}
-                    </ol>
-                  </div>
-                )}
-              </div>
-
-              {/* Agent mini-votes */}
-              {roles.length > 0 && streams && (
-                <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] overflow-hidden">
-                  <p className="px-4 sm:px-5 py-3 text-[10px] text-slate-500 uppercase tracking-widest font-bold border-b border-slate-200 dark:border-white/[0.06]">{t.canvas.agentAnalyses}</p>
-                  <div className="divide-y divide-slate-200 dark:divide-white/[0.04]">
-                    {roles.map((role: any) => {
-                      const stream = streams[role.key];
-                      const vote = report?.board_votes?.[role.key];
-                      const vt = token(vote?.vote, t);
-                      const displayText = (stream?.text || "")
-                        .replace(/<think>[\s\S]*?<\/think>/gi, "")
-                        .replace(/^\s*\*?\*?Final Analysis:\*?\*?\s*/i, "")
-                        .trim();
-                      if (!displayText && !vote) return null;
-                      return (
-                        <details key={role.key} className="group">
-                          <summary className="flex items-center gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors list-none">
-                            <span className={`w-7 h-7 rounded-md bg-gradient-to-br ${role.color} flex items-center justify-center text-xs flex-shrink-0`}>{role.icon}</span>
-                            <div className="flex-1 min-w-0 text-start">
-                              <span className="text-xs font-semibold text-slate-900 dark:text-white block truncate">
-                                {t.agents[role.key]?.title || role.name || role.key}
-                              </span>
-                              <span className="text-[10px] text-slate-500 truncate">
-                                {t.agents[role.key]?.role || role.title}
-                              </span>
-                            </div>
-                            {vote && (
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`}>{vt.icon} {vt.label} · {vote.confidence}%</span>
-                            )}
-                            <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
-                          </summary>
-                          <div className="px-4 sm:px-5 py-3 bg-white dark:bg-white/[0.01] border-t border-slate-100 dark:border-white/[0.04]">
-                            <div className="prose prose-xs prose-slate dark:prose-invert max-w-none text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText || `_${t.canvas.noAnalysis}_`}</ReactMarkdown>
-                            </div>
-                          </div>
-                        </details>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+          <MashwaraResultView
+            report={report}
+            streams={streams}
+            rolesInfo={rolesInfo}
+            template={template}
+            decisionTitle={decisionTitle}
+            isProcessing={isProcessing}
+            activeTab={tab}
+            onTabChange={(newTab) => setTab(newTab)}
+            mode="interactive"
+          />
         </div>
+      </div>
+
+      {/* ── Guest Confirmation Modal ── */}
+      {isGuestConfirmOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xl">
+              🔗
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">
+                {t.share.guestConfirmTitle}
+              </h3>
+              <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                {t.share.guestSaveNotice}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-2 italic">
+                {t.share.anyoneWithLink}
+              </p>
+            </div>
+            <div className="flex justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => setIsGuestConfirmOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+              >
+                {t.common.cancel}
+              </button>
+              <button
+                onClick={executeShare}
+                disabled={isSharing}
+                className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow transition-all"
+              >
+                {isSharing ? t.common.loading : t.share.guestConfirmButton}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Share Link Success Modal ── */}
+      {isShareModalOpen && shareUrl && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">✨</span>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  {t.share.shareMashwara}
+                </h3>
+              </div>
+              <button
+                onClick={() => setIsShareModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {t.share.anyoneWithLink}
+            </p>
+
+            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10">
+              <input
+                type="text"
+                readOnly
+                value={shareUrl}
+                className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-200 focus:outline-none truncate px-1 select-all"
+              />
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(shareUrl);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2500);
+                }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  copied
+                    ? "bg-emerald-600 text-white"
+                    : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
+                }`}
+              >
+                {copied ? t.share.linkCopied : t.share.copyLink}
+              </button>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <a
+                href={shareUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10 transition-colors"
+              >
+                <span>{t.share.openLink}</span>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                </svg>
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Off-screen DOM Container for High-Fidelity PDF Generation ── */}
+      <div
+        id="mashwara-canvas-export"
+        data-mashwara-export="true"
+        className="fixed -left-[9999px] top-0 w-[820px] bg-white text-slate-900 pointer-events-none overflow-visible"
+        style={{ zIndex: -100 }}
+        aria-hidden="true"
+      >
+        <MashwaraResultView
+          report={report}
+          streams={streams}
+          rolesInfo={rolesInfo}
+          template={template}
+          decisionTitle={displayDecisionTitle}
+          mode="export"
+          customT={t}
+          language={language}
+        />
       </div>
     </div>
   );

@@ -4,6 +4,10 @@
 .env
 .env.local
 .env.production
+.env*
+*.env.yaml
+env.yaml
+.env.cloudrun.yaml
 
 # ====================
 # Python

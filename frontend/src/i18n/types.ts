@@ -172,4 +172,23 @@ export interface TranslationSchema {
   };
   templates: Record<string, { name: string; description: string }>;
   agents: Record<string, { title: string; role: string }>;
+  share: {
+    shareMashwara: string;
+    linkCopied: string;
+    copyLink: string;
+    openLink: string;
+    anyoneWithLink: string;
+    guestSaveNotice: string;
+    guestConfirmTitle: string;
+    guestConfirmButton: string;
+    startYourOwn: string;
+    exportPdf: string;
+    exportingPdf: string;
+    sharedNotFound: string;
+    sharedNotFoundDesc: string;
+    backToHome: string;
+    mahireenKiRaaye: string;
+    mashwaraReport: string;
+    shareFailed: string;
+  };
 }

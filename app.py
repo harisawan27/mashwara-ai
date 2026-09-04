@@ -30,7 +30,7 @@ if str(BACKEND_DIR) not in sys.path:
 # Import backend modules
 from templates.board_templates import TemplateType, TEMPLATE_METADATA
 from agents import run_meeting, AgentStreamParser
-from agents.board_config import get_board_config
+from agents.board_config import get_board_config, CHAT_MODEL
 from main import app as fastapi_app
 
 import gradio as gr
@@ -388,8 +388,8 @@ async def convene_board_meeting(
 {details_block}
 """
     
-    status_banner = "⏳ **Convening Board Meeting... Initializing specialized agents.**"
-    deliberation_md = "### 🏛️ Initializing Virtual Boardroom..."
+    status_banner = "⏳ **Mashwara AI Consultation... Initializing specialist advisors.**"
+    deliberation_md = "### 🏛️ Initializing Mashwara Consultation..."
     report_md = ""
     yield status_banner, deliberation_md, report_md
     
@@ -424,7 +424,7 @@ async def convene_board_meeting(
                         "confidence": None
                     }
                 deliberation_md = _format_deliberation_md(roles_info, agent_state)
-                yield "👔 **Board members assembled.** Commencing multi-agent deliberation...", deliberation_md, ""
+                yield "👔 **Specialist Advisors assembled.** Commencing multi-agent deliberation...", deliberation_md, ""
                 
             elif msg_type == "status":
                 agent = data.get("agent")
@@ -508,10 +508,10 @@ async def chief_of_staff_chat(
 
     # Format history for Gemini
     system_prompt = (
-        "You are the Chief of Staff to an ambitious founder or executive. "
-        "Your role is to help them prepare proposals, identify blind spots, challenge assumptions, "
-        "and brainstorm strategic decisions before convening the board. "
-        "Be concise, highly analytical, constructive, and strategic."
+        "You are the Mashwara Assistant (مشاورتی معاون / Mashwara Assistant) on Mashwara AI. "
+        "Your role is to help users brainstorm, evaluate proposals, ask clarifying questions, "
+        "and suggest convening the full Mashwara council when diverse expert perspectives would add value. "
+        "Respond naturally in the user's language (Urdu, Roman Urdu, or English). Keep answers concise and supportive."
     )
     
     contents = []
@@ -534,7 +534,7 @@ async def chief_of_staff_chat(
     
     try:
         response_stream = await client.aio.models.generate_content_stream(
-            model='gemini-2.5-flash',
+            model=CHAT_MODEL,
             contents=contents,
             config=genai_types.GenerateContentConfig(
                 system_instruction=system_prompt,
@@ -690,17 +690,17 @@ def create_gradio_app() -> gr.Blocks:
                 )
 
             # ---------------------------------------------------------------
-            # Tab 2: Chief of Staff Chatbot
+            # Tab 2: Mashwara Assistant Chatbot
             # ---------------------------------------------------------------
-            with gr.TabItem("💬 Chief of Staff Consultation", id="tab_cos"):
+            with gr.TabItem("💬 Mashwara Assistant Consultation", id="tab_cos"):
                 gr.Markdown("""
-                ### 🧑‍💼 Strategic Consultation with your Chief of Staff
-                Brainstorm, test counter-arguments, and refine your pitch before calling a formal vote of the board.
+                ### 🧑‍💼 Strategic Consultation with your Mashwara Assistant
+                Brainstorm, test counter-arguments, and refine your thoughts before convening the full Mashwara council.
                 """)
                 
                 chatbot = gr.Chatbot(height=520, type="tuples")
                 with gr.Row():
-                    chat_msg = gr.Textbox(placeholder="Ask your Chief of Staff a question or paste an early idea...", scale=4, show_label=False)
+                    chat_msg = gr.Textbox(placeholder="Ask your Mashwara Assistant a question or share an idea...", scale=4, show_label=False)
                     chat_send = gr.Button("Send", variant="primary", scale=1)
                     
                 chat_send.click(

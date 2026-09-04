@@ -43,10 +43,13 @@ from templates.board_templates import (
     TEMPLATE_METADATA,
 )
 from agents import run_meeting
+from agents.board_config import CHAT_MODEL
+from agents.language_intelligence import resolve_consultation_language
 from database import get_db, AsyncSessionLocal
 from models.user import User
 from models.meeting import Meeting
 from models.chat import ChatSession, ChatMessage
+from models.shared_mashwara import SharedMashwara, utc_now_naive
 from security.auth import (
     get_password_hash,
     verify_password,
@@ -55,6 +58,8 @@ from security.auth import (
     get_optional_current_user,
 )
 import datetime
+import secrets
+import re
 from sqlalchemy.orm import selectinload
 from google import genai
 import google.genai.types as genai_types
@@ -108,6 +113,7 @@ allowed_origins = [o.strip() for o in allowed_origins_str.split(",")]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -148,6 +154,7 @@ class ChatRequest(BaseModel):
     template: str = Field(default="STARTUP_BOARD", description="Board template context")
     prompt: str = Field(..., description="The user's raw decision prompt")
     session_id: Optional[str] = Field(None, description="The chat session ID")
+    language: Optional[str] = Field(None, description="Authoritative frontend language (ur, roman-ur, en)")
 
 class SessionRenameRequest(BaseModel):
     title: str
@@ -155,6 +162,7 @@ class SessionRenameRequest(BaseModel):
 class StandardMessageRequest(BaseModel):
     session_id: Optional[str] = None
     message: str
+    language: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
 
 class NeonAuthExchangeRequest(BaseModel):
@@ -183,6 +191,23 @@ class ChatSessionResponse(BaseModel):
     created_at: datetime.datetime
     updated_at: datetime.datetime
     messages: Optional[List[ChatMessageResponse]] = None
+
+class CreateSharedMashwaraRequest(BaseModel):
+    meeting_id: Optional[str] = None
+    snapshot: Optional[Dict[str, Any]] = None
+    language: Optional[str] = None
+    decision_title: Optional[str] = None
+
+class SharedMashwaraResponse(BaseModel):
+    share_id: str
+    share_url: str
+
+class PublicSharedMashwaraResponse(BaseModel):
+    share_id: str
+    language: str
+    decision_title: str
+    snapshot: Dict[str, Any]
+    created_at: str
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -542,8 +567,29 @@ async def send_standard_message(
     history = hist_result.scalars().all()
     
     contents = []
-    # System context
-    system_prompt = "You are the Chief of Staff for a CEO. You help them brainstorm and refine proposals before they present them to the Board of Directors. Be concise, professional, and helpful."
+    # Language resolution & System context
+    target_lang, _ = resolve_consultation_language(body.language, body.message)
+    if target_lang == "ur":
+        system_prompt = (
+            "آپ مشورہ اے آئی (Mashwara AI) کے مشاورتی معاون ہیں۔ "
+            "آپ صارف کے فیصلے یا مسئلے کو بغور سمجھتے ہیں، اگر ضروری ہو تو مختصر اور اہم وضاحتی سوال پوچھتے ہیں، "
+            "ابتدائی مفید مشورہ دیتے ہیں، اور جہاں مختلف ماہرین کے زاویوں کی ضرورت ہو وہاں مکمل مشورہ کونسل شروع کرنے کی تجویز دیتے ہیں۔ "
+            "سلیس اور شستہ اردو میں بات کریں۔ کوئی غیر ضروری لمبا جواب نہ دیں۔"
+        )
+    elif target_lang == "roman-ur":
+        system_prompt = (
+            "Aap Mashwara AI ke Mashwara Assistant hain. "
+            "Aap user ke decision ya confusion ko achi tarah samajhte hain, zaroorat parne par focused sawal poochte hain, "
+            "lightweight practical guidance dete hain, aur jahan multi-agent council ki zaroorat ho wahan full Mashwara start karne ka mashwara dete hain. "
+            "Natural modern Pakistani Roman Urdu mein baat karein."
+        )
+    else:
+        system_prompt = (
+            "You are the Mashwara Assistant on Mashwara AI. "
+            "You help users clarify their decisions, ask decisive questions when necessary, provide concise helpful guidance, "
+            "and recommend convening a full Mashwara expert consultation when multiple specialist perspectives would add value."
+        )
+
     if current_user.profile_data:
         system_prompt += f"\nUser Context: {json.dumps(current_user.profile_data)}"
     
@@ -555,7 +601,7 @@ async def send_standard_message(
             contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=m.content)]))
 
     response = client.models.generate_content(
-        model='gemini-3.1-flash-lite',
+        model=CHAT_MODEL,
         contents=contents,
         config=genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
@@ -563,7 +609,7 @@ async def send_standard_message(
         )
     )
     
-    ai_text = response.text or "I understand. Would you like me to convene the board on this?"
+    ai_text = response.text or ("میں سمجھ گیا ہوں۔ کیا آپ چاہتے ہیں کہ اس پر مکمل مشورہ کونسل کا اجلاس بلایا جائے؟" if target_lang == "ur" else ("Main samajh gaya hoon. Kya aap chahte hain ke is par full Mashwara Council ka mashwara shuru kiya jaye?" if target_lang == "roman-ur" else "I understand. Would you like to convene the full Mashwara council on this?"))
     
     # Save assistant message
     asst_msg = ChatMessage(session_id=session.id, role="assistant", content=ai_text)
@@ -588,7 +634,27 @@ async def stream_standard_message(
 ):
     session = None
     contents = []
-    system_prompt = "You are the Chief of Staff for a founder or decision-maker in Mashwara AI. You help them brainstorm and refine proposals. IMPORTANT: Before you answer, you MUST write your internal thought process wrapped in <think>...</think> tags."
+    target_lang, _ = resolve_consultation_language(body.language or request.headers.get("accept-language"), body.message)
+    if target_lang == "ur":
+        system_prompt = (
+            "آپ مشورہ اے آئی (Mashwara AI) کے مشاورتی معاون ہیں۔ "
+            "آپ صارف کے فیصلے یا مسئلے کو بغور سمجھتے ہیں، اگر ضروری ہو تو مختصر اور اہم وضاحتی سوال پوچھتے ہیں، "
+            "ابتدائی مفید مشورہ دیتے ہیں، اور جہاں مختلف ماہرین کے زاویوں کی ضرورت ہو وہاں مکمل مشورہ کونسل شروع کرنے کی تجویز دیتے ہیں۔ "
+            "سلیس اور شستہ اردو میں بات کریں۔"
+        )
+    elif target_lang == "roman-ur":
+        system_prompt = (
+            "Aap Mashwara AI ke Mashwara Assistant hain. "
+            "Aap user ke decision ya confusion ko achi tarah samajhte hain, zaroorat parne par focused sawal poochte hain, "
+            "lightweight practical guidance dete hain, aur jahan multi-agent council ki zaroorat ho wahan full Mashwara start karne ka mashwara dete hain. "
+            "Natural modern Pakistani Roman Urdu mein baat karein."
+        )
+    else:
+        system_prompt = (
+            "You are the Mashwara Assistant on Mashwara AI. "
+            "You help users clarify their decisions, ask decisive questions when necessary, provide concise helpful guidance, "
+            "and recommend convening a full Mashwara expert consultation when multiple specialist perspectives would add value."
+        )
 
     if current_user is not None:
         if body.session_id:
@@ -646,7 +712,7 @@ async def stream_standard_message(
         full_thinking = ""
         try:
             response_stream = await client.aio.models.generate_content_stream(
-                model='gemini-3.1-flash-lite',
+                model=CHAT_MODEL,
                 contents=contents,
                 config=genai_types.GenerateContentConfig(
                     system_instruction=system_prompt,
@@ -746,7 +812,7 @@ async def chat_stream(
                 asst_msg = ChatMessage(
                     session_id=session.id, 
                     role="assistant", 
-                    content=f"I am convening the {template_name_formatted} to analyze this decision.", 
+                    content=f"Mashwara Council is convening to analyze this decision.", 
                     is_agentic=True,
                     meeting_id=meeting_id
                 )
@@ -755,9 +821,9 @@ async def chat_stream(
                 
                 client = genai.Client()
                 try:
-                    summary_prompt = f"Write a professional, 1-2 paragraph executive summary confirming that you are convening the {template_name_formatted} to analyze the following decision. Do not use Markdown headings. Be concise and engaging.\n\nDecision:\n{body.prompt}"
+                    summary_prompt = f"Write a professional, 1 paragraph consultation confirmation in {body.language or 'Urdu'} confirming that the Mashwara Council is convening to analyze the following decision. Be concise, engaging and supportive.\n\nDecision:\n{body.prompt}"
                     response = client.models.generate_content(
-                        model='gemini-3.1-flash-lite',
+                        model=CHAT_MODEL,
                         contents=summary_prompt,
                     )
                     if response.text:
@@ -776,7 +842,7 @@ async def chat_stream(
                     context_str += "\nPrevious Chat Context:\n"
                     for m in history:
                         if not m.is_agentic and m.id != user_msg.id:
-                            role_str = "User" if m.role == "user" else "Chief of Staff"
+                            role_str = "User" if m.role == "user" else "Mashwara Assistant"
                             context_str += f"{role_str}: {m.content}\n"
 
         await db.commit()
@@ -792,7 +858,16 @@ async def chat_stream(
         final_report_data = None
         streams_accumulator = {"_roles": []}
         try:
-            async for chunk in run_meeting(meeting_id, template_type, {"prompt": final_prompt, "decision_title": "Mashwara Consultation"}, cancel_event=cancel_event):
+            async for chunk in run_meeting(
+                meeting_id,
+                template_type,
+                {
+                    "prompt": final_prompt,
+                    "decision_title": "Mashwara Consultation",
+                    "language": body.language or request.headers.get("accept-language"),
+                },
+                cancel_event=cancel_event
+            ):
                 if await request.is_disconnected():
                     logger.info(f"Client disconnected, cancelling board stream for meeting {meeting_id}.")
                     cancel_event.set()
@@ -844,6 +919,211 @@ async def chat_stream(
             logger.info(f"Board stream event_generator finished for meeting {meeting_id}.")
 
     return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# Shared Mashwara Helper & Endpoints
+# ---------------------------------------------------------------------------
+def normalize_consultation_snapshot(
+    decision_title: str,
+    language: str,
+    template: str,
+    roles: List[Dict[str, Any]],
+    streams: Dict[str, Any],
+    report: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Normalizes consultation presentation data into a clean, canonical snapshot.
+    Strips raw runtime state, internal prompts, tokens, or debug logs.
+    """
+    normalized_experts = []
+    board_votes = (report or {}).get("board_votes", {})
+
+    for r in roles:
+        rk = r.get("key") or r.get("role_id")
+        if not rk or rk in ("lead_advisor", "Moderator") or r.get("is_moderator"):
+            continue
+
+        st = streams.get(rk, {}) if isinstance(streams, dict) else {}
+        raw_text = st.get("text", "") if isinstance(st, dict) else ""
+
+        clean_text = re.sub(r'<think>[\s\S]*?</think>', '', raw_text)
+        clean_text = re.sub(r'```(?:json)?\s*\{[\s\S]*?\}\s*```', '', clean_text).strip()
+        if not clean_text:
+            clean_text = raw_text.strip()
+
+        vote_info = board_votes.get(rk, {})
+        v_token = vote_info.get("vote", "DEFER") if isinstance(vote_info, dict) else "DEFER"
+        v_conf = vote_info.get("confidence", 50) if isinstance(vote_info, dict) else 50
+
+        normalized_experts.append({
+            "role_id": rk,
+            "name": r.get("name", rk),
+            "title": r.get("title", ""),
+            "description": r.get("description", ""),
+            "icon": r.get("icon", "👔"),
+            "color": r.get("color", "from-blue-500 to-blue-700"),
+            "analysis": clean_text,
+            "vote": v_token,
+            "confidence": v_conf,
+        })
+
+    clean_report = {
+        "final_decision": (report or {}).get("final_decision", "DEFER"),
+        "confidence_score": (report or {}).get("confidence_score", 50),
+        "board_votes": board_votes,
+        "debate_summary": (report or {}).get("debate_summary", ""),
+        "key_risks": (report or {}).get("key_risks", []),
+        "recommended_actions": (report or {}).get("recommended_actions", []),
+        "agreement": (report or {}).get("agreement", ""),
+        "disagreement": (report or {}).get("disagreement", ""),
+        "assumptions": (report or {}).get("assumptions", []),
+        "what_would_change": (report or {}).get("what_would_change", ""),
+    }
+
+    return {
+        "decision_title": decision_title or "Mashwara Consultation",
+        "language": language or "roman-ur",
+        "domain": template.replace("_BOARD", "").lower() if template else "general",
+        "template": template or "career",
+        "experts": normalized_experts,
+        "report": clean_report,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    }
+
+
+@app.post("/shared-mashwaras", response_model=SharedMashwaraResponse, tags=["Shared Mashwara"])
+@limiter.limit("20/minute")
+async def create_shared_mashwara(
+    request: Request,
+    body: CreateSharedMashwaraRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Creates a public, unguessable read-only share link for a completed Mashwara.
+    - Authenticated users: snapshots are constructed server-side from authorized meeting records.
+    - Guest users: snapshots are strictly validated, sanitized, and request-size limited (max 500KB).
+    """
+    normalized_snapshot = None
+
+    if current_user is not None and body.meeting_id:
+        result = await db.execute(
+            select(Meeting).filter(Meeting.id == body.meeting_id, Meeting.user_id == current_user.id)
+        )
+        meeting = result.scalars().first()
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Meeting not found or unauthorized")
+
+        streams_data = meeting.streams_data or {}
+        roles = streams_data.get("_roles", [])
+        streams = {k: v for k, v in streams_data.items() if k != "_roles"}
+        target_lang = body.language or "roman-ur"
+
+        normalized_snapshot = normalize_consultation_snapshot(
+            decision_title=meeting.prompt,
+            language=target_lang,
+            template=meeting.template,
+            roles=roles,
+            streams=streams,
+            report=meeting.report_data or {},
+        )
+    elif body.snapshot:
+        # Validate guest snapshot size limit (max 500KB)
+        raw_json = json.dumps(body.snapshot)
+        if len(raw_json.encode("utf-8")) > 500_000:
+            raise HTTPException(status_code=413, detail="Snapshot payload exceeds maximum allowed size (500KB)")
+
+        s = body.snapshot
+        # If client provided normalized experts directly
+        if "experts" in s and isinstance(s.get("experts"), list) and "report" in s:
+            normalized_snapshot = {
+                "decision_title": s.get("decision_title") or body.decision_title or "Mashwara Consultation",
+                "language": s.get("language") or body.language or "roman-ur",
+                "domain": s.get("domain", "general"),
+                "template": s.get("template", "career"),
+                "experts": [
+                    {
+                        "role_id": str(e.get("role_id", "")),
+                        "name": str(e.get("name", "")),
+                        "title": str(e.get("title", "")),
+                        "description": str(e.get("description", "")),
+                        "icon": str(e.get("icon", "👔")),
+                        "color": str(e.get("color", "from-blue-500 to-blue-700")),
+                        "analysis": str(e.get("analysis", "")),
+                        "vote": str(e.get("vote", "DEFER")),
+                        "confidence": int(e.get("confidence", 50)),
+                    }
+                    for e in s.get("experts", [])
+                ],
+                "report": s.get("report", {}),
+                "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            }
+        elif "roles" in s or "streams" in s:
+            normalized_snapshot = normalize_consultation_snapshot(
+                decision_title=s.get("decision_title") or body.decision_title or "Mashwara Consultation",
+                language=s.get("language") or body.language or "roman-ur",
+                template=s.get("template", "career"),
+                roles=s.get("roles") or s.get("rolesInfo") or [],
+                streams=s.get("streams", {}),
+                report=s.get("report", {}),
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid snapshot format: must contain consultation report and experts")
+    else:
+        raise HTTPException(status_code=400, detail="Must provide either meeting_id or valid snapshot")
+
+    # Generate cryptographically secure unguessable share_id with collision retry
+    share_id = None
+    for _ in range(5):
+        candidate = secrets.token_urlsafe(16)
+        existing = await db.execute(select(SharedMashwara).filter(SharedMashwara.share_id == candidate))
+        if not existing.scalars().first():
+            share_id = candidate
+            break
+
+    if not share_id:
+        raise HTTPException(status_code=500, detail="Failed to generate a unique share ID")
+
+    shared = SharedMashwara(
+        share_id=share_id,
+        owner_user_id=current_user.id if current_user else None,
+        language=normalized_snapshot.get("language", "roman-ur"),
+        decision_title=normalized_snapshot.get("decision_title", "Mashwara Consultation")[:500],
+        snapshot=normalized_snapshot,
+        created_at=utc_now_naive(),
+    )
+    db.add(shared)
+    await db.commit()
+    await db.refresh(shared)
+
+    return SharedMashwaraResponse(
+        share_id=shared.share_id,
+        share_url=f"/m/{shared.share_id}",
+    )
+
+
+@app.get("/shared-mashwaras/{share_id}", response_model=PublicSharedMashwaraResponse, tags=["Shared Mashwara"])
+async def get_public_shared_mashwara(
+    share_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public read endpoint: returns a clean, read-only consultation snapshot.
+    Does NOT require authentication. Does NOT expose user IDs, emails, system prompts, or secrets.
+    """
+    result = await db.execute(select(SharedMashwara).filter(SharedMashwara.share_id == share_id))
+    record = result.scalars().first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Shared Mashwara report not found")
+
+    return PublicSharedMashwaraResponse(
+        share_id=record.share_id,
+        language=record.language,
+        decision_title=record.decision_title or "Mashwara Consultation",
+        snapshot=record.snapshot,
+        created_at=record.created_at.isoformat() + "Z" if record.created_at else "",
+    )
 
 
 # ---------------------------------------------------------------------------

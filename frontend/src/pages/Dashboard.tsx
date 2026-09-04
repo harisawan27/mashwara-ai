@@ -798,6 +798,7 @@ export default function Dashboard() {
             template={activeMeetingData.template}
             decisionTitle={activeMeetingData.decisionTitle}
             rolesInfo={activeMeetingData.rolesInfo}
+            meetingId={activeMeetingData.id}
           />
         )}
         <TutorialModal isOpen={isTutorialOpen} onClose={handleCloseTutorial} />

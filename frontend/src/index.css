@@ -305,3 +305,44 @@ html[lang="ur"] h1, html[lang="ur"] h2, html[lang="ur"] h3, html[lang="ur"] h4 {
 html.dark .dot-pattern {
   background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px);
 }
+
+/* -------------------------------------------------------------------------
+   Print & PDF Export Styles
+   ------------------------------------------------------------------------- */
+@media print {
+  @page {
+    margin: 12mm 15mm;
+    size: auto;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #0f172a !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  header, nav, button, .no-print, [role="dialog"] > .absolute.inset-0 {
+    display: none !important;
+  }
+
+  .break-inside-avoid, article, .rounded-2xl {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .custom-scrollbar, div[class*="overflow-y-auto"], div[class*="max-h-"] {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  details {
+    display: block !important;
+  }
+  details summary {
+    display: flex !important;
+  }
+  details > div {
+    display: block !important;
+  }
+}
