@@ -164,7 +164,7 @@ export default function MeetingCanvas({
           ? "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔"
           : language === "en"
           ? "PDF couldn't be generated. Please try again."
-          : "PDF export nahi ho saka. Dobara try karein.";
+          : "PDF download nahi ho saka. Dobara try karein.";
       const msg = t.share?.pdfExportError || fallbackMsg;
       setExportError(msg);
       setTimeout(() => setExportError(null), 5000);

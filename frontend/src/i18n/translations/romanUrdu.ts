@@ -351,6 +351,6 @@ export const romanUrdu: TranslationSchema = {
     mahireenKiRaaye: "Mahireen ki Raaye",
     mashwaraReport: "Mashwara Report",
     shareFailed: "Share link nahi ban saka. Dobara try karein.",
-    pdfExportError: "PDF export nahi ho saka. Dobara try karein.",
+    pdfExportError: "PDF download nahi ho saka. Dobara try karein.",
   },
 };

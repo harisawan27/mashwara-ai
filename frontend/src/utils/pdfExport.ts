@@ -11,17 +11,14 @@
  *    Any capture error triggers a bounded retry; if it still fails, generation is aborted
  *    with a clear user notification. NO silent catch-and-continue data loss.
  * 5. Isolated onclone rendering: Export DOM is kept invisible on screen at all times (no flash),
- *    while html2canvas's internal clone is made visible at normal coordinates for 100% accurate layout.
- * 6. Native Color Sanitization: Converts modern Tailwind v4 oklch() / color-mix() colors
- *    into standard RGB strings via the browser's 2D canvas engine to prevent parser crashes.
- * 7. Two-Tier Capture with Native SVG Fallback:
- *    - Tier 1: High-fidelity html2canvas with isolated clone & color sanitization.
- *    - Tier 2: Native SVG <foreignObject> rasterization for 100% CSS color compatibility.
- * 8. Direct file download: `mashwara-<sanitized-title>.pdf` via JavaScript.
+ *    while html2canvas-pro's internal clone is made visible at normal coordinates for 100% accurate layout.
+ * 6. Modern CSS Color Compatibility: Uses html2canvas-pro with native CSS Color Module Level 4
+ *    support (oklab, oklch, lab, lch, color-mix, variables) without fragile color sanitizers.
+ * 7. Direct file download: `mashwara-<sanitized-title>.pdf` via JavaScript.
  */
 
 import jsPDF from "jspdf";
-import html2canvas from "html2canvas";
+import html2canvas from "html2canvas-pro";
 
 export interface ExportPdfOptions {
   elementId?: string;
@@ -30,42 +27,15 @@ export interface ExportPdfOptions {
   onError?: (error: Error) => void;
 }
 
-// Reusable offscreen canvas for converting any CSS color (oklch, color-mix, etc.) to safe rgb
-let colorCanvas: HTMLCanvasElement | null = null;
-let colorCtx: CanvasRenderingContext2D | null = null;
-
-function toSafeRgb(raw: string): string {
-  if (!raw || raw === "transparent" || raw === "inherit" || raw === "initial" || raw === "currentColor") {
-    return raw;
-  }
-  if (!raw.includes("oklch") && !raw.includes("color-mix") && !raw.includes("lab") && !raw.includes("lch")) {
-    return raw;
-  }
-  if (typeof document === "undefined") return "#ffffff";
-  if (!colorCanvas) {
-    colorCanvas = document.createElement("canvas");
-    colorCanvas.width = 1;
-    colorCanvas.height = 1;
-    colorCtx = colorCanvas.getContext("2d", { willReadFrequently: true });
-  }
-  if (!colorCtx) return "#ffffff";
-  try {
-    colorCtx.fillStyle = "#ffffff";
-    colorCtx.fillStyle = raw;
-    return colorCtx.fillStyle; // Native 2D canvas parser returns "#rrggbb" or "rgba(...)"
-  } catch {
-    return "#ffffff";
-  }
-}
-
 /**
- * Sanitizes the cloned document for html2canvas:
- * - Makes the export container fully visible at origin
- * - Converts modern oklch / color-mix declarations to standard RGB
+ * Prepares the cloned document for html2canvas-pro:
+ * - Makes the export container fully visible at origin within the isolated clone
+ * - Ensures sections are visible
  * - Disables transitions and animations for instant static rasterization
+ * Note: Modern CSS colors (oklab, oklch, color-mix) are natively parsed by html2canvas-pro.
  */
-function sanitizeClonedDom(clonedDoc: Document, targetContainerId: string, sectionId: string) {
-  // 1. Position and display the export container at normal origin coordinates
+function prepareClonedDom(clonedDoc: Document, targetContainerId: string, sectionId: string) {
+  // 1. Position and display the export container at normal origin coordinates inside the clone
   const clonedContainer =
     clonedDoc.getElementById(targetContainerId) ||
     clonedDoc.querySelector<HTMLElement>("[data-mashwara-export='true']");
@@ -96,130 +66,12 @@ function sanitizeClonedDom(clonedDoc: Document, targetContainerId: string, secti
     s.style.visibility = "visible";
   });
 
-  // 3. Sanitize all <style> elements: replace oklch(...) and color-mix(...) with RGB equivalents
-  clonedDoc.querySelectorAll("style").forEach((styleEl) => {
-    if (styleEl.textContent && (styleEl.textContent.includes("oklch") || styleEl.textContent.includes("color-mix"))) {
-      try {
-        styleEl.textContent = styleEl.textContent
-          .replace(/oklch\([^)]+\)/gi, (m) => toSafeRgb(m))
-          .replace(/color-mix\([^)]+\)/gi, (m) => toSafeRgb(m));
-      } catch (e) {
-        console.warn("[PDF Export] Style tag sanitize warning:", e);
-      }
-    }
-  });
-
-  // 4. Sanitize all elements: convert computed modern color properties to explicit safe RGB inline styles
+  // 3. Disable animations and transitions for instant static rasterization
   const allCloned = clonedDoc.querySelectorAll<HTMLElement>("*");
-  const win = clonedDoc.defaultView || window;
-  const colorProps = [
-    "color",
-    "backgroundColor",
-    "borderColor",
-    "borderTopColor",
-    "borderRightColor",
-    "borderBottomColor",
-    "borderLeftColor",
-    "outlineColor",
-    "fill",
-    "stroke",
-  ] as const;
-
   allCloned.forEach((node) => {
     node.style.animation = "none";
     node.style.transition = "none";
-
-    try {
-      const comp = win.getComputedStyle(node);
-      for (const prop of colorProps) {
-        const val = (comp as any)[prop];
-        if (val && (val.includes("oklch") || val.includes("color-mix"))) {
-          (node.style as any)[prop] = toSafeRgb(val);
-        }
-      }
-    } catch {
-      // Ignore if element is detached
-    }
   });
-}
-
-/**
- * Fallback rasterizer: Uses the browser's native SVG <foreignObject> engine
- * which natively parses and renders any CSS color function (oklch, color-mix, gradients).
- */
-async function captureFallbackSvg(
-  el: HTMLElement,
-  sectionId: string
-): Promise<HTMLCanvasElement> {
-  console.log(`[PDF Export] Rendering native SVG fallback for section "${sectionId}"...`);
-  const rect = el.getBoundingClientRect();
-  const width = Math.ceil(rect.width || 820);
-  const height = Math.ceil(rect.height || 400);
-
-  const clone = el.cloneNode(true) as HTMLElement;
-  clone.style.width = `${width}px`;
-  clone.style.height = "auto";
-  clone.style.margin = "0";
-  clone.style.transform = "none";
-  clone.style.opacity = "1";
-  clone.style.visibility = "visible";
-  clone.style.backgroundColor = "#ffffff";
-
-  // Collect active stylesheets
-  let cssText = "";
-  for (const sheet of Array.from(document.styleSheets)) {
-    try {
-      for (const rule of Array.from(sheet.cssRules)) {
-        cssText += rule.cssText + "\n";
-      }
-    } catch {
-      // Ignore cross-origin rules
-    }
-  }
-
-  const serializer = new XMLSerializer();
-  const serialized = serializer.serializeToString(clone);
-
-  const svgData = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="${width * 2}" height="${height * 2}" viewBox="0 0 ${width} ${height}">
-      <style>
-        ${cssText}
-        * { animation: none !important; transition: none !important; }
-      </style>
-      <foreignObject width="100%" height="100%">
-        <div xmlns="http://www.w3.org/1999/xhtml" style="background-color: #ffffff; width: ${width}px; min-height: ${height}px;">
-          ${serialized}
-        </div>
-      </foreignObject>
-    </svg>
-  `;
-
-  const canvas = document.createElement("canvas");
-  canvas.width = width * 2;
-  canvas.height = height * 2;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Could not acquire 2D canvas context");
-
-  const img = new Image();
-  const svgBlob = new Blob([svgData], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(svgBlob);
-
-  await new Promise<void>((resolve, reject) => {
-    img.onload = () => {
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      resolve();
-    };
-    img.onerror = (err) => {
-      URL.revokeObjectURL(url);
-      reject(err);
-    };
-    img.src = url;
-  });
-
-  return canvas;
 }
 
 export async function exportMashwaraPdf(
@@ -279,7 +131,7 @@ export async function exportMashwaraPdf(
 
   const targetContainerId = targetElement.id || "mashwara-export-container";
 
-  // Capture helper with bounded retry, sanitized onclone, and native fallback
+  // Capture helper with single bounded retry and clean onclone preparation
   async function captureSection(el: HTMLElement, sectionId: string): Promise<HTMLCanvasElement> {
     const rect = el.getBoundingClientRect();
     const width = Math.ceil(rect.width || 820);
@@ -288,13 +140,13 @@ export async function exportMashwaraPdf(
 
     const doPrimaryCapture = async () => {
       return await html2canvas(el, {
-        scale: 2, // 2x resolution for crisp Nastaliq text & badges
+        scale: 2, // 2x resolution for crisp text & badges
         useCORS: true,
         backgroundColor: "#ffffff",
         logging: false,
         windowWidth: 820,
         onclone: (clonedDoc: Document) => {
-          sanitizeClonedDom(clonedDoc, targetContainerId, sectionId);
+          prepareClonedDom(clonedDoc, targetContainerId, sectionId);
         },
       });
     };
@@ -314,25 +166,14 @@ export async function exportMashwaraPdf(
       }
       await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 150)));
 
-      console.warn(`[PDF Export] Retrying with sanitized isolated fallback for "${sectionId}"...`);
+      console.warn(`[PDF Export] Retrying section capture for "${sectionId}"...`);
       try {
         const retryCanvas = await doPrimaryCapture();
         if (retryCanvas && retryCanvas.width > 0 && retryCanvas.height > 0) {
           return retryCanvas;
         }
       } catch (retryErr: any) {
-        console.warn(`[PDF Export] Primary retry failed for "${sectionId}": ${retryErr.message || retryErr}, attempting native SVG fallback...`);
-      }
-
-      // Tier 2 Fallback: Browser native SVG renderer
-      try {
-        const svgCanvas = await captureFallbackSvg(el, sectionId);
-        if (svgCanvas && svgCanvas.width > 0 && svgCanvas.height > 0) {
-          console.log(`[PDF Export] Successfully captured "${sectionId}" via native fallback.`);
-          return svgCanvas;
-        }
-      } catch (svgErr: any) {
-        console.error(`[PDF Export] Retry failure for "${sectionId}": ${svgErr.message || svgErr}`);
+        console.error(`[PDF Export] Retry failure for "${sectionId}": ${retryErr.message || retryErr}`);
       }
 
       console.error(`[PDF Export] FATAL: Section "${sectionId}" capture failed. Aborting to avoid data loss.`);
@@ -350,6 +191,7 @@ export async function exportMashwaraPdf(
       const ratio = contentWidth / canvas.width;
       const heightPt = canvas.height * ratio;
       capturedSections.push({ sectionId, canvas, heightPt });
+      console.log(`[PDF Export] Captured "${sectionId}" (${i + 1}/${targets.length})`);
     } catch (err: any) {
       const exportError = new Error(`PDF export failed at section "${sectionId}": ${err.message || err}`);
       console.error("[PDF Export] Section capture error:", exportError);
@@ -358,6 +200,8 @@ export async function exportMashwaraPdf(
       throw exportError;
     }
   }
+
+  console.log(`[PDF Export] Captured all ${capturedSections.length}/${expectedCount} sections`);
 
   // Strict Section Count Verification
   if (capturedSections.length !== expectedCount) {
@@ -371,6 +215,7 @@ export async function exportMashwaraPdf(
   }
 
   options?.onProgress?.("assembling");
+  console.log("[PDF Export] Assembling PDF...");
 
   // ───────────────────────────────────────────────────────────────────────────
   // Multi-Page A4 PDF Assembly
@@ -460,10 +305,11 @@ export async function exportMashwaraPdf(
   }
 
   options?.onProgress?.("saving");
+  console.log("[PDF Export] Saving PDF...");
 
   const sanitizedTitle = sanitizeFilename(title);
   pdf.save(`mashwara-${sanitizedTitle}.pdf`);
-  console.log(`[PDF Export] Save reached: mashwara-${sanitizedTitle}.pdf (${totalPages} pages)`);
+  console.log(`[PDF Export] Successfully generated mashwara-${sanitizedTitle}.pdf (${totalPages} pages)`);
 }
 
 /**
