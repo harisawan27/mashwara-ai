@@ -224,6 +224,7 @@ export async function exportMashwaraPdf(
     orientation: "portrait",
     unit: "pt",
     format: "a4",
+    compress: true,
   });
 
   let currentY = margin;
@@ -238,8 +239,8 @@ export async function exportMashwaraPdf(
         currentY = margin;
       }
 
-      const imgData = item.canvas.toDataURL("image/png");
-      pdf.addImage(imgData, "PNG", margin, currentY, contentWidth, item.heightPt);
+      const imgData = item.canvas.toDataURL("image/jpeg", 0.92);
+      pdf.addImage(imgData, "JPEG", margin, currentY, contentWidth, item.heightPt);
       currentY += item.heightPt + gap;
     } else {
       // Oversized case: Section is taller than a full printable page
@@ -266,6 +267,9 @@ export async function exportMashwaraPdf(
         sliceCanvas.height = thisSliceHeightPx;
         const sCtx = sliceCanvas.getContext("2d");
         if (sCtx) {
+          // Pre-fill white so opaque JPEG has a solid white backdrop
+          sCtx.fillStyle = "#ffffff";
+          sCtx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
           sCtx.drawImage(
             item.canvas,
             0,
@@ -280,8 +284,8 @@ export async function exportMashwaraPdf(
         }
 
         const sliceHeightPt = thisSliceHeightPx * (contentWidth / item.canvas.width);
-        const sliceData = sliceCanvas.toDataURL("image/png");
-        pdf.addImage(sliceData, "PNG", margin, currentY, contentWidth, sliceHeightPt);
+        const sliceData = sliceCanvas.toDataURL("image/jpeg", 0.92);
+        pdf.addImage(sliceData, "JPEG", margin, currentY, contentWidth, sliceHeightPt);
         currentY += sliceHeightPt + gap;
         yOffsetPx += thisSliceHeightPx;
       }

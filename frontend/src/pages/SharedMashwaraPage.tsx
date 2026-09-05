@@ -12,7 +12,7 @@
  * - Subtle non-intrusive "Start your own Mashwara" CTA
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { getSharedMashwara, type PublicSharedMashwaraData } from "../api/client";
 import MashwaraResultView from "../components/MashwaraResultView";
@@ -24,36 +24,36 @@ export default function SharedMashwaraPage() {
   const { shareId } = useParams<{ shareId: string }>();
   const [data, setData] = useState<PublicSharedMashwaraData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<"not_found" | "failed_to_load" | null>(null);
   const [activeTab, setActiveTab] = useState<"deliberation" | "report">("report");
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
+  const fetchData = useCallback(() => {
     if (!shareId) {
-      setError("Invalid share link");
+      setError("not_found");
       setLoading(false);
       return;
     }
 
-    let isMounted = true;
+    setLoading(true);
+    setError(null);
+
     getSharedMashwara(shareId)
       .then((res) => {
-        if (isMounted) {
-          setData(res);
-          setLoading(false);
-        }
+        setData(res);
+        setLoading(false);
       })
       .catch((err) => {
-        if (isMounted) {
-          setError(err.response?.status === 404 ? "not_found" : "failed_to_load");
-          setLoading(false);
-        }
+        console.warn("[Shared Mashwara] Load error:", err);
+        const is404 = err?.isNotFound || err?.status === 404 || err?.response?.status === 404;
+        setError(is404 ? "not_found" : "failed_to_load");
+        setLoading(false);
       });
-
-    return () => {
-      isMounted = false;
-    };
   }, [shareId]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Set noindex, nofollow robots meta tag dynamically
   useEffect(() => {
@@ -79,7 +79,7 @@ export default function SharedMashwaraPage() {
   const t = getTranslations(reportLang);
   const isUrdu = reportLang === "ur";
 
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportStage, setExportStage] = useState<"idle" | "preparing" | "capturing" | "assembling" | "saving" | "downloaded">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
 
   const handleCopyLink = () => {
@@ -90,18 +90,28 @@ export default function SharedMashwaraPage() {
   };
 
   const handleExportPdf = async () => {
-    if (isExportingPdf) return;
-    setIsExportingPdf(true);
+    if (exportStage !== "idle") return;
+    setExportStage("preparing");
     setExportError(null);
     try {
       await exportMashwaraPdf(data?.decision_title || "Mashwara", {
         elementId: "mashwara-shared-export-content",
+        onProgress: (stage) => {
+          setExportStage(stage);
+        },
         onError: (err) => {
           console.error("[PDF Export Technical Error]", err);
         },
       });
+
+      // Show downloaded state for 1.8 seconds after pdf.save() triggers
+      setExportStage("downloaded");
+      setTimeout(() => {
+        setExportStage("idle");
+      }, 1800);
     } catch (err: any) {
       console.error("[PDF Export Failed]", err);
+      setExportStage("idle");
       const fallbackMsg =
         reportLang === "ur"
           ? "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔"
@@ -111,8 +121,6 @@ export default function SharedMashwaraPage() {
       const msg = t.share.pdfExportError || fallbackMsg;
       setExportError(msg);
       setTimeout(() => setExportError(null), 5000);
-    } finally {
-      setIsExportingPdf(false);
     }
   };
 
@@ -154,22 +162,48 @@ export default function SharedMashwaraPage() {
 
   // Error / Not Found State
   if (error || !data) {
+    const isNotFound = error === "not_found";
+
     return (
       <div
         dir={isUrdu ? "rtl" : "ltr"}
         className={`min-h-screen bg-slate-50 dark:bg-[#070913] flex flex-col items-center justify-center p-4 text-center ${isUrdu ? "lang-ur" : ""}`}
       >
-        <div className="w-14 h-14 rounded-2xl bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center text-2xl mb-4 border border-amber-500/20">
-          ⚠️
-        </div>
-        <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-1">{t.share.sharedNotFound}</h1>
-        <p className="text-xs text-slate-500 max-w-sm mb-6">{t.share.sharedNotFoundDesc}</p>
-        <Link
-          to="/"
-          className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-all"
+        <div
+          className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-4 border ${
+            isNotFound
+              ? "bg-amber-50 dark:bg-amber-500/10 border-amber-500/20"
+              : "bg-blue-50 dark:bg-blue-500/10 border-blue-500/20 text-blue-600 dark:text-blue-400"
+          }`}
         >
-          {t.share.backToHome}
-        </Link>
+          {isNotFound ? "⚠️" : "🔄"}
+        </div>
+        <h1 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
+          {isNotFound ? t.share.sharedNotFound : (t.share.sharedLoadError || "Unable to load shared consultation")}
+        </h1>
+        <p className="text-xs text-slate-500 max-w-sm mb-6">
+          {isNotFound ? t.share.sharedNotFoundDesc : (t.share.sharedLoadErrorDesc || "A temporary connection issue occurred. Please try again.")}
+        </p>
+        <div className="flex items-center gap-3">
+          {!isNotFound && (
+            <button
+              onClick={fetchData}
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-all"
+            >
+              {t.share.retry || "Retry"}
+            </button>
+          )}
+          <Link
+            to="/"
+            className={`px-5 py-2.5 rounded-xl text-xs font-semibold shadow-sm transition-all ${
+              isNotFound
+                ? "bg-blue-600 hover:bg-blue-700 text-white"
+                : "bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
+            }`}
+          >
+            {t.share.backToHome}
+          </Link>
+        </div>
       </div>
     );
   }
@@ -232,20 +266,37 @@ export default function SharedMashwaraPage() {
             )}
           </button>
 
-          {/* Export PDF Button */}
+          {/* Export PDF Button with Progress Stages */}
           <button
             onClick={handleExportPdf}
-            disabled={isExportingPdf}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
+            disabled={exportStage !== "idle"}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all ${
+              exportStage === "downloaded"
+                ? "bg-emerald-600 text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-85"
+            }`}
             title={t.share.exportPdf}
           >
-            {isExportingPdf ? (
+            {exportStage === "downloaded" ? (
+              <>
+                <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                <span className="hidden sm:inline">{t.share.pdfDownloaded || "Download started ✓"}</span>
+              </>
+            ) : exportStage !== "idle" ? (
               <>
                 <svg className="animate-spin w-3.5 h-3.5 text-white" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                 </svg>
-                <span className="hidden sm:inline">{t.share.exportingPdf}</span>
+                <span className="hidden sm:inline">
+                  {exportStage === "saving"
+                    ? (t.share.pdfSaving || "Saving...")
+                    : exportStage === "preparing"
+                    ? (t.share.pdfPreparing || "Preparing PDF...")
+                    : (t.share.pdfGenerating || "Generating PDF...")}
+                </span>
               </>
             ) : (
               <>

@@ -372,7 +372,69 @@ export async function createSharedMashwara(payload: {
   return res.data;
 }
 
+export class SharedMashwaraError extends Error {
+  status?: number;
+  isNotFound?: boolean;
+  constructor(message: string, status?: number, isNotFound: boolean = false) {
+    super(message);
+    this.name = "SharedMashwaraError";
+    this.status = status;
+    this.isNotFound = isNotFound;
+  }
+}
+
 export async function getSharedMashwara(shareId: string): Promise<PublicSharedMashwaraData> {
-  const res = await apiClient.get<PublicSharedMashwaraData>(`/shared-mashwaras/${shareId}`);
-  return res.data;
+  const url = `${API_BASE}/shared-mashwaras/${encodeURIComponent(shareId)}`;
+
+  const doFetch = async (): Promise<PublicSharedMashwaraData> => {
+    // Genuinely anonymous simple GET: no Content-Type, no Authorization, only Accept header.
+    // Avoids CORS preflight requirements on public read endpoints.
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+
+    if (res.status === 404) {
+      throw new SharedMashwaraError("Shared Mashwara not found", 404, true);
+    }
+
+    if (!res.ok) {
+      throw new SharedMashwaraError(
+        `Server returned ${res.status}: ${res.statusText}`,
+        res.status,
+        false
+      );
+    }
+
+    return await res.json();
+  };
+
+  try {
+    return await doFetch();
+  } catch (err: any) {
+    // Never retry a genuine 404
+    if (err?.isNotFound || err?.status === 404) {
+      throw err;
+    }
+
+    // Network error / CORS / 5xx: automatically retry ONCE after short delay (800ms)
+    console.warn("[Shared Mashwara] First attempt failed, retrying once after 800ms...", err);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+
+    try {
+      return await doFetch();
+    } catch (retryErr: any) {
+      console.error("[Shared Mashwara] Public GET retry also failed:", retryErr);
+      if (retryErr?.isNotFound || retryErr?.status === 404) {
+        throw retryErr;
+      }
+      throw new SharedMashwaraError(
+        retryErr?.message || "Temporary connection issue loading shared consultation",
+        retryErr?.status,
+        false
+      );
+    }
+  }
 }

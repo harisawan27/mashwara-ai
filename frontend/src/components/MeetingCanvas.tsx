@@ -75,7 +75,7 @@ export default function MeetingCanvas({
   const [copied, setCopied] = useState(false);
   const [isGuestConfirmOpen, setIsGuestConfirmOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
+  const [exportStage, setExportStage] = useState<"idle" | "preparing" | "capturing" | "assembling" | "saving" | "downloaded">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -147,18 +147,28 @@ export default function MeetingCanvas({
   };
 
   const handleExportPdf = async () => {
-    if (isExportingPdf) return;
-    setIsExportingPdf(true);
+    if (exportStage !== "idle") return;
+    setExportStage("preparing");
     setExportError(null);
     try {
       await exportMashwaraPdf(displayDecisionTitle, {
         elementId: "mashwara-canvas-export",
+        onProgress: (stage) => {
+          setExportStage(stage);
+        },
         onError: (err) => {
           console.error("[PDF Export Technical Error]", err);
         },
       });
+
+      // Show downloaded checkmark for 1.8 seconds after pdf.save() triggers
+      setExportStage("downloaded");
+      setTimeout(() => {
+        setExportStage("idle");
+      }, 1800);
     } catch (err: any) {
       console.error("Failed to export PDF:", err);
+      setExportStage("idle");
       const fallbackMsg =
         language === "ur"
           ? "PDF تیار نہیں ہو سکی۔ دوبارہ کوشش کریں۔"
@@ -168,8 +178,6 @@ export default function MeetingCanvas({
       const msg = t.share?.pdfExportError || fallbackMsg;
       setExportError(msg);
       setTimeout(() => setExportError(null), 5000);
-    } finally {
-      setIsExportingPdf(false);
     }
   };
 
@@ -228,20 +236,39 @@ export default function MeetingCanvas({
                   <span className="hidden sm:inline">{t.share.shareMashwara}</span>
                 </button>
 
-                {/* PDF Export Button */}
+                {/* PDF Export Button with Progress Stages */}
                 <button
                   onClick={handleExportPdf}
-                  disabled={isExportingPdf}
-                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+                  disabled={exportStage !== "idle"}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                    exportStage === "downloaded"
+                      ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold"
+                      : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] disabled:opacity-85"
+                  }`}
                   title={t.share.exportPdf}
                 >
-                  {isExportingPdf ? (
+                  {exportStage === "downloaded" ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                      <span className="hidden sm:inline text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">
+                        {t.share.pdfDownloaded || "Download started ✓"}
+                      </span>
+                    </>
+                  ) : exportStage !== "idle" ? (
                     <>
                       <svg className="animate-spin w-3.5 h-3.5 text-blue-500" viewBox="0 0 24 24" fill="none">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">{t.share.exportingPdf}</span>
+                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+                        {exportStage === "saving"
+                          ? (t.share.pdfSaving || "Saving...")
+                          : exportStage === "preparing"
+                          ? (t.share.pdfPreparing || "Preparing PDF...")
+                          : (t.share.pdfGenerating || "Generating PDF...")}
+                      </span>
                     </>
                   ) : (
                     <>

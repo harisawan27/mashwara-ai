@@ -644,8 +644,8 @@ export default function MashwaraResultView({
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold text-slate-900 tracking-tight">
-                  <LocalizedBrand forceUrdu={isUrdu} />
+                <h1 className="text-base font-extrabold text-slate-900 tracking-tight font-sans" dir="ltr">
+                  Mashwara AI
                 </h1>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">
                   {templateLabel}

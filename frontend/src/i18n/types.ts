@@ -195,6 +195,13 @@ export interface TranslationSchema {
     exportingPdf: string;
     sharedNotFound: string;
     sharedNotFoundDesc: string;
+    sharedLoadError?: string;
+    sharedLoadErrorDesc?: string;
+    retry?: string;
+    pdfPreparing?: string;
+    pdfGenerating?: string;
+    pdfSaving?: string;
+    pdfDownloaded?: string;
     backToHome: string;
     mahireenKiRaaye: string;
     mashwaraReport: string;
