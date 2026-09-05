@@ -14,7 +14,7 @@
 
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-urdu: 'Noto Nastaliq Urdu', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-urdu: 'Noto Sans Arabic', sans-serif;
 
   /* Template accent colors */
   --color-accent-blue: #818cf8;
@@ -333,38 +333,31 @@ html.dark .dot-pattern {
 }
 
 /* -------------------------------------------------------------------------
-   Urdu Typography: Noto Nastaliq Urdu ONLY across the entire website
+   Urdu Typography: Noto Sans Arabic
    ------------------------------------------------------------------------- */
 :root {
-  --font-urdu: 'Noto Nastaliq Urdu', serif;
+  --font-urdu: 'Noto Sans Arabic', sans-serif;
 }
 
 html[lang="ur"],
 html.lang-ur,
 [dir="rtl"] {
-  --font-sans: 'Noto Nastaliq Urdu', serif;
+  font-family: 'Noto Sans Arabic', sans-serif;
 }
 
-html[lang="ur"],
 html[lang="ur"] body,
-html.lang-ur,
 html.lang-ur body,
-[dir="rtl"],
 [dir="rtl"] body {
-  font-family: 'Noto Nastaliq Urdu', serif !important;
-  line-height: 2.0;
+  font-family: 'Noto Sans Arabic', sans-serif;
+  line-height: 1.6;
   letter-spacing: normal;
 }
 
-/* All text elements across the entire website in Urdu must use Noto Nastaliq Urdu */
-html[lang="ur"] *:not(.font-sans):not(code):not(pre):not(input[type="password"]):not(input[type="email"]),
-html.lang-ur *:not(.font-sans):not(code):not(pre):not(input[type="password"]):not(input[type="email"]),
-[dir="rtl"] *:not(.font-sans):not(code):not(pre):not(input[type="password"]):not(input[type="email"]),
 .font-urdu {
-  font-family: 'Noto Nastaliq Urdu', serif !important;
+  font-family: 'Noto Sans Arabic', sans-serif !important;
 }
 
-/* Headings in Urdu */
+/* Headings in Urdu: clean compact UI line-height */
 html[lang="ur"] h1,
 html[lang="ur"] h2,
 html[lang="ur"] h3,
@@ -377,11 +370,11 @@ html[lang="ur"] h6,
 .lang-ur h4,
 .lang-ur h5,
 .lang-ur h6 {
-  font-family: 'Noto Nastaliq Urdu', serif !important;
-  line-height: 1.8;
+  font-family: 'Noto Sans Arabic', sans-serif;
+  line-height: 1.45;
 }
 
-/* Ensure buttons, inputs, and badges in Urdu use Noto Nastaliq Urdu */
+/* Buttons, inputs, and form controls in Urdu */
 html[lang="ur"] button,
 html[lang="ur"] input:not([type="password"]):not([type="email"]),
 html[lang="ur"] textarea,
@@ -391,11 +384,10 @@ html[lang="ur"] select,
 .lang-ur textarea,
 .lang-ur select,
 [dir="rtl"] button {
-  font-family: 'Noto Nastaliq Urdu', serif !important;
-  min-height: 2.25rem;
+  font-family: 'Noto Sans Arabic', sans-serif;
 }
 
-/* Exclusions: Passwords, emails, and code blocks */
+/* Exclusions: Technical Latin terms (AI, PDF, Google, Email, Password, URLs), code blocks, passwords, emails */
 html[lang="ur"] input[type="password"],
 html[lang="ur"] input[type="email"],
 html[lang="ur"] input[dir="ltr"],
@@ -412,6 +404,6 @@ html[lang="ur"] .font-sans,
 .lang-ur .font-sans,
 [dir="rtl"] .font-sans {
   font-family: 'Inter', ui-sans-serif, system-ui, sans-serif !important;
-  line-height: normal !important;
+  line-height: normal;
 }
 
