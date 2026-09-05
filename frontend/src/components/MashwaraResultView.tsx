@@ -12,7 +12,6 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
-import { LocalizedBrand } from "./LocalizedBrand";
 import { useTranslation } from "../i18n";
 import type { RoleInfo, SharedMashwaraExpert } from "../api/client";
 

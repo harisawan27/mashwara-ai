@@ -8,9 +8,9 @@ const commitSha = process.env.VERCEL_GIT_COMMIT_SHA
   ? process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7)
   : (() => {
       try {
-        return execSync('git rev-parse --short HEAD').toString().trim()
+        return execSync('git rev-parse --short HEAD', { timeout: 1000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim()
       } catch {
-        return 'unknown'
+        return 'prod'
       }
     })()
 
