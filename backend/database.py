@@ -20,8 +20,14 @@ if not is_sqlite:
         DATABASE_URL = DATABASE_URL.replace("?sslmode=require", "")
     connect_args = {"ssl": True}
 
-# Create async SQLAlchemy engine
-engine = create_async_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+# Create async SQLAlchemy engine with connection recycling and ping test
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+    pool_recycle=300,
+)
 
 # Create async session factory
 AsyncSessionLocal = async_sessionmaker(

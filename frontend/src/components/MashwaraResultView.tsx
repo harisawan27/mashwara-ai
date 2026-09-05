@@ -169,11 +169,12 @@ export default function MashwaraResultView({
 
   const isExportMode = mode === "export";
 
-  // Normalize roles: prioritize rolesInfo, fallback to experts array from snapshot
+  // Normalize roles: prioritize rolesInfo, fallback to experts array from snapshot, or actual voted agents in report.board_votes
   const roles: any[] =
     rolesInfo && rolesInfo.length > 0
       ? rolesInfo.filter((r: any) => r.key !== "Moderator" && r.key !== "lead_advisor" && !r.is_moderator)
-      : (experts || []).map((e) => ({
+      : (experts && experts.length > 0)
+      ? experts.map((e) => ({
           key: e.role_id,
           role_id: e.role_id,
           name: e.name,
@@ -181,7 +182,18 @@ export default function MashwaraResultView({
           description: e.description,
           icon: e.icon || "👔",
           color: e.color || "from-blue-500 to-blue-700",
-        }));
+        }))
+      : report?.board_votes
+      ? Object.keys(report.board_votes).map((agentKey) => ({
+          key: agentKey,
+          role_id: agentKey,
+          name: t.agents[agentKey]?.title || agentKey,
+          title: t.agents[agentKey]?.role || "Specialist",
+          description: "",
+          icon: "👔",
+          color: "from-blue-500 to-indigo-600",
+        }))
+      : [];
 
   const moderator = rolesInfo?.find((r: any) => r.key === "Moderator" || r.key === "lead_advisor" || r.is_moderator);
 
@@ -629,8 +641,11 @@ export default function MashwaraResultView({
 
     return (
       <div
+        id="mashwara-export-content"
+        data-mashwara-export="true"
+        lang={isUrdu ? "ur" : "en"}
         dir={isUrdu ? "rtl" : "ltr"}
-        className={`p-6 space-y-4 bg-white text-slate-900 w-[800px] mx-auto ${isUrdu ? "font-urdu" : ""}`}
+        className={`p-6 space-y-4 bg-white text-slate-900 w-[800px] mx-auto ${isUrdu ? "font-urdu lang-ur" : ""}`}
       >
         {/* 1. Header: Mashwara AI */}
         <header
@@ -638,12 +653,12 @@ export default function MashwaraResultView({
           className="flex items-center justify-between gap-4 p-5 rounded-2xl border border-slate-200 bg-slate-50 shadow-sm"
         >
           <div className="flex items-center gap-3.5">
-            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center p-2 shadow-sm">
-              <img src="/boardroom-ai.svg" alt="Mashwara AI" className="w-full h-full object-contain" />
+            <div className="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center p-2 shadow-sm" style={{ width: 40, height: 40, minWidth: 40, minHeight: 40 }}>
+              <img src="/boardroom-ai.svg" alt="Mashwara AI" width={40} height={40} style={{ width: 40, height: 40, objectFit: "contain" }} className="w-full h-full object-contain" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-extrabold text-slate-900 tracking-tight font-sans" dir="ltr">
+                <h1 className="text-base font-extrabold text-slate-900 tracking-tight font-sans" dir="ltr" style={{ fontFamily: "'Inter', sans-serif" }}>
                   Mashwara AI
                 </h1>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 border border-blue-200">

@@ -28,33 +28,178 @@ export interface ExportPdfOptions {
 }
 
 /**
- * Prepares the cloned document for html2canvas-pro:
- * - Makes the export container fully visible at origin within the isolated clone
- * - Ensures sections are visible
- * - Disables transitions and animations for instant static rasterization
- * Note: Modern CSS colors (oklab, oklch, color-mix) are natively parsed by html2canvas-pro.
+ * Safely collects all active CSS rules from document.styleSheets once per export.
+ * Every stylesheet access is protected by try/catch against cross-origin SecurityErrors.
  */
-function prepareClonedDom(clonedDoc: Document, targetContainerId: string, sectionId: string) {
-  // 1. Position and display the export container at normal origin coordinates inside the clone
+function collectDocumentStyles(): string {
+  let cssText = "";
+  if (typeof document === "undefined") return cssText;
+  for (let i = 0; i < document.styleSheets.length; i++) {
+    try {
+      const sheet = document.styleSheets[i];
+      if (sheet && sheet.cssRules) {
+        for (let j = 0; j < sheet.cssRules.length; j++) {
+          cssText += sheet.cssRules[j].cssText + "\n";
+        }
+      }
+    } catch {
+      // Cross-origin stylesheet access restriction — safely skip
+    }
+  }
+  return cssText;
+}
+
+/**
+ * Prepares the cloned document for html2canvas-pro:
+ * - Inlines collected host CSS so Tailwind utility classes and CSS variables are 100% available synchronously
+ * - Preserves documentElement lang, dir, and typography classes (forces light export theme)
+ * - Reparents the export container directly to clonedDoc.body to isolate it from modals/drawers
+ * - Ensures all sections in the clone are visible and static (no animations)
+ */
+function prepareClonedDom(
+  clonedDoc: Document,
+  targetContainerId: string,
+  sectionId: string,
+  inlinedStyles: string
+) {
+  const hostDoc = typeof document !== "undefined" ? document : null;
+
+  // 1. Locate the export container in the clone
   const clonedContainer =
     clonedDoc.getElementById(targetContainerId) ||
-    clonedDoc.querySelector<HTMLElement>("[data-mashwara-export='true']");
+    clonedDoc.querySelector<HTMLElement>("[data-mashwara-export='true']") ||
+    clonedDoc.getElementById("mashwara-export-content");
+
+  // Determine direction & Urdu mode from container attributes or host document
+  const isUrdu =
+    clonedContainer?.getAttribute("lang") === "ur" ||
+    clonedContainer?.getAttribute("dir") === "rtl" ||
+    clonedContainer?.classList.contains("font-urdu") ||
+    hostDoc?.documentElement.getAttribute("lang") === "ur" ||
+    hostDoc?.documentElement.dir === "rtl" ||
+    hostDoc?.documentElement.classList.contains("lang-ur");
+
+  // 2. Establish typography, direction, language, and deterministic light theme
+  clonedDoc.documentElement.setAttribute("lang", isUrdu ? "ur" : "en");
+  clonedDoc.documentElement.setAttribute("dir", isUrdu ? "rtl" : "ltr");
+  clonedDoc.body.setAttribute("dir", isUrdu ? "rtl" : "ltr");
+
+  // Copy root and body classes from host document (excluding 'dark' to enforce clean light theme)
+  if (hostDoc) {
+    hostDoc.documentElement.classList.forEach((cls) => {
+      if (cls !== "dark") clonedDoc.documentElement.classList.add(cls);
+    });
+    hostDoc.body.classList.forEach((cls) => {
+      if (cls !== "dark") clonedDoc.body.classList.add(cls);
+    });
+  }
+
+  clonedDoc.documentElement.classList.remove("dark");
+  clonedDoc.body.classList.remove("dark");
+
+  if (isUrdu) {
+    clonedDoc.documentElement.classList.add("lang-ur");
+    clonedDoc.body.classList.add("lang-ur");
+  }
+
+  // Copy CSS Custom Properties from host root
+  if (hostDoc) {
+    try {
+      const computedRoot = window.getComputedStyle(hostDoc.documentElement);
+      const customProps = [
+        "--font-sans",
+        "--font-urdu",
+        "--color-accent-blue",
+        "--color-accent-emerald",
+        "--color-accent-amber",
+        "--color-accent-sky",
+        "--color-accent-rose",
+      ];
+      customProps.forEach((prop) => {
+        const val = computedRoot.getPropertyValue(prop);
+        if (val) {
+          clonedDoc.documentElement.style.setProperty(prop, val);
+        }
+      });
+    } catch {
+      // Ignore if computed style read is restricted
+    }
+  }
+
+  clonedDoc.body.style.backgroundColor = "#ffffff";
+  clonedDoc.body.style.color = "#0f172a";
+  clonedDoc.body.style.margin = "0";
+  clonedDoc.body.style.padding = "0";
+
+  // 3. Ensure fonts and inlined styles are in clonedDoc.head
+  if (hostDoc) {
+    const headLinks = hostDoc.querySelectorAll<HTMLLinkElement>("link[rel*='stylesheet'], link[rel*='preconnect']");
+    headLinks.forEach((link) => {
+      const href = link.getAttribute("href") || "";
+      if (href && !clonedDoc.querySelector(`link[href="${href}"]`)) {
+        const clonedLink = clonedDoc.createElement("link");
+        Array.from(link.attributes).forEach((attr) => {
+          clonedLink.setAttribute(attr.name, attr.value);
+        });
+        clonedDoc.head.appendChild(clonedLink);
+      }
+    });
+  }
+
+  if (!clonedDoc.getElementById("mashwara-pdf-inlined-styles")) {
+    const styleEl = clonedDoc.createElement("style");
+    styleEl.id = "mashwara-pdf-inlined-styles";
+    const googleFonts = "@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Noto+Sans+Arabic:wght@300;400;500;600;700;800&display=swap');\n";
+    styleEl.textContent = googleFonts + (inlinedStyles || "");
+    clonedDoc.head.appendChild(styleEl);
+  }
+
+  // 4. Reparent the export container directly under clonedDoc.body
   if (clonedContainer) {
+    // Hide other body elements so only the export container occupies the layout
+    Array.from(clonedDoc.body.children).forEach((child) => {
+      if (child !== clonedContainer && child.nodeName !== "SCRIPT" && child.nodeName !== "STYLE" && child.nodeName !== "LINK") {
+        (child as HTMLElement).style.display = "none";
+      }
+    });
+
+    if (clonedContainer.parentElement !== clonedDoc.body) {
+      clonedDoc.body.appendChild(clonedContainer);
+    }
+
     clonedContainer.style.opacity = "1";
     clonedContainer.style.visibility = "visible";
-    clonedContainer.style.position = "absolute";
-    clonedContainer.style.top = "0";
-    clonedContainer.style.left = "0";
-    clonedContainer.style.zIndex = "1000";
+    clonedContainer.style.position = "static";
+    clonedContainer.style.display = "block";
+    clonedContainer.style.width = "820px";
+    clonedContainer.style.margin = "0 auto";
     clonedContainer.style.transform = "none";
     clonedContainer.style.pointerEvents = "auto";
     clonedContainer.style.maxHeight = "none";
     clonedContainer.style.overflow = "visible";
     clonedContainer.style.height = "auto";
     clonedContainer.style.backgroundColor = "#ffffff";
+
+    if (isUrdu) {
+      clonedContainer.style.wordSpacing = "0.18em";
+      clonedContainer.style.letterSpacing = "normal";
+    }
+
+    // Normalize text node newlines into spaces so html2canvas doesn't collapse soft linebreaks
+    const walker = clonedDoc.createTreeWalker(clonedContainer, NodeFilter.SHOW_TEXT);
+    let currentNode: Node | null = walker.nextNode();
+    while (currentNode) {
+      const parent = currentNode.parentElement;
+      if (parent && parent.tagName !== "CODE" && parent.tagName !== "PRE") {
+        if (currentNode.nodeValue && currentNode.nodeValue.includes("\n")) {
+          currentNode.nodeValue = currentNode.nodeValue.replace(/\r?\n\s*/g, " ");
+        }
+      }
+      currentNode = walker.nextNode();
+    }
   }
 
-  // 2. Ensure the target section and all sections in the clone are visible
+  // 5. Ensure target section and all sections in the clone are visible
   const clonedEl = clonedDoc.querySelector<HTMLElement>(`[data-pdf-section="${sectionId}"]`);
   if (clonedEl) {
     clonedEl.style.opacity = "1";
@@ -64,13 +209,20 @@ function prepareClonedDom(clonedDoc: Document, targetContainerId: string, sectio
   allSections.forEach((s) => {
     s.style.opacity = "1";
     s.style.visibility = "visible";
+    if (isUrdu) {
+      s.style.wordSpacing = "0.18em";
+      s.style.letterSpacing = "normal";
+    }
   });
 
-  // 3. Disable animations and transitions for instant static rasterization
+  // 6. Disable animations and transitions for instant static rasterization
   const allCloned = clonedDoc.querySelectorAll<HTMLElement>("*");
   allCloned.forEach((node) => {
     node.style.animation = "none";
     node.style.transition = "none";
+    if (isUrdu) {
+      node.style.letterSpacing = "normal";
+    }
   });
 }
 
@@ -93,10 +245,17 @@ export async function exportMashwaraPdf(
 
   options?.onProgress?.("preparing");
 
-  // Ensure all web fonts (including Gulzar and Noto Nastaliq Urdu) are fully loaded
+  // Collect host document styles once for injection across all cloned sections
+  const inlinedStyles = collectDocumentStyles();
+
+  // Ensure all web fonts (including Noto Sans Arabic and Inter) are fully loaded and raster-ready
   if (typeof document !== "undefined" && document.fonts && document.fonts.ready) {
     try {
       await document.fonts.ready;
+      await Promise.allSettled([
+        document.fonts.load("16px 'Noto Sans Arabic'"),
+        document.fonts.load("16px 'Inter'"),
+      ]);
     } catch (fontErr) {
       console.warn("[PDF Export] document.fonts.ready warning, proceeding:", fontErr);
     }
@@ -146,7 +305,7 @@ export async function exportMashwaraPdf(
         logging: false,
         windowWidth: 820,
         onclone: (clonedDoc: Document) => {
-          prepareClonedDom(clonedDoc, targetContainerId, sectionId);
+          prepareClonedDom(clonedDoc, targetContainerId, sectionId, inlinedStyles);
         },
       });
     };

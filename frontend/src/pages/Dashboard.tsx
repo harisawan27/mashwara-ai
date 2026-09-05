@@ -754,7 +754,7 @@ export default function Dashboard() {
                               setActiveMeetingData({
                                 id: msg.meeting?.id,
                                 template: msg.meeting?.template || "STARTUP_BOARD",
-                                decisionTitle: msg.meeting?.prompt ? "Past Board Meeting" : "Live Board Meeting",
+                                decisionTitle: msg.meeting?.prompt || t.canvas.boardMeeting,
                                 report: msg.meeting?.report_data,
                                 rolesInfo: dbStreamsData._roles || [],
                                 streams: streamsObj

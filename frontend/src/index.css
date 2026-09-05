@@ -343,6 +343,8 @@ html[lang="ur"],
 html.lang-ur,
 [dir="rtl"] {
   font-family: 'Noto Sans Arabic', sans-serif;
+  letter-spacing: normal !important;
+  word-spacing: 0.18em;
 }
 
 html[lang="ur"] body,
@@ -350,7 +352,17 @@ html.lang-ur body,
 [dir="rtl"] body {
   font-family: 'Noto Sans Arabic', sans-serif;
   line-height: 1.6;
-  letter-spacing: normal;
+  letter-spacing: normal !important;
+  word-spacing: 0.18em;
+}
+
+/* Disallow letter-spacing / tracking on Urdu to preserve cursive word shaping */
+html[lang="ur"] [class*="tracking-"],
+html.lang-ur [class*="tracking-"],
+[dir="rtl"] [class*="tracking-"],
+.font-urdu [class*="tracking-"],
+.lang-ur [class*="tracking-"] {
+  letter-spacing: normal !important;
 }
 
 .font-urdu {
