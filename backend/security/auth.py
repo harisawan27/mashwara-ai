@@ -3,7 +3,6 @@ import uuid
 import logging
 import jwt
 import bcrypt
-from jwt import PyJWKClient
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
@@ -23,34 +22,6 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "default-mashwara-jwt-secret-key-change-in-prod")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "43200")) # 30 days
-
-# Neon Auth Configuration & JWKS URL normalization
-NEON_AUTH_URL = os.getenv(
-    "NEON_AUTH_URL",
-    os.getenv("NEON_AUTH_BASE_URL", "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth")
-)
-_raw_jwks = os.getenv("NEON_AUTH_JWKS_URL", f"{NEON_AUTH_URL}/.well-known/jwks.json")
-if _raw_jwks.endswith(".well-know"):
-    NEON_AUTH_JWKS_URL = _raw_jwks + "n/jwks.json"
-elif _raw_jwks.endswith(".well-known"):
-    NEON_AUTH_JWKS_URL = _raw_jwks + "/jwks.json"
-elif _raw_jwks.endswith(".well-known/jwks.js"):
-    NEON_AUTH_JWKS_URL = _raw_jwks[:-3] + ".json"
-elif not _raw_jwks.endswith(".json"):
-    NEON_AUTH_JWKS_URL = _raw_jwks.rstrip("/") + "/.well-known/jwks.json"
-else:
-    NEON_AUTH_JWKS_URL = _raw_jwks
-
-_jwks_client = None
-
-def get_jwks_client():
-    global _jwks_client
-    if _jwks_client is None:
-        try:
-            _jwks_client = PyJWKClient(NEON_AUTH_JWKS_URL)
-        except Exception as e:
-            logger.warning(f"Could not initialize PyJWKClient with {NEON_AUTH_JWKS_URL}: {e}")
-    return _jwks_client
 
 def verify_password(plain_password: str, hashed_password: str | None) -> bool:
     """Verify password with direct bcrypt check and pwd_context fallback.
@@ -90,7 +61,6 @@ async def get_optional_current_user(
     Optional authentication dependency.
     - If Authorization header is absent -> returns None (Guest mode)
     - If valid local Mashwara AI JWT is supplied -> returns authenticated User
-    - If valid Neon Auth JWKS token is supplied -> finds or provisions User and returns User
     - If token is supplied but invalid or expired -> raises 401 error
     """
     if not token:
@@ -102,59 +72,17 @@ async def get_optional_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-    user_id: str | None = None
-    neon_email: str | None = None
-    neon_name: str | None = None
-
-    # 1. Try local Mashwara AI JWT
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id = payload.get("sub")
     except jwt.PyJWTError:
-        # 2. Try validating as Neon Auth JWT token via JWKS
-        client = get_jwks_client()
-        if client and token.count(".") == 2:
-            try:
-                signing_key = client.get_signing_key_from_jwt(token)
-                neon_payload = jwt.decode(
-                    token,
-                    signing_key.key,
-                    algorithms=["EdDSA", "RS256", "ES256", "HS256"],
-                    options={"verify_aud": False}
-                )
-                neon_email = neon_payload.get("email")
-                neon_name = neon_payload.get("name") or neon_payload.get("user", {}).get("name", "")
-                user_id = neon_payload.get("sub")
-            except Exception as jwks_err:
-                logger.debug(f"Token is not a valid Neon Auth JWKS token: {jwks_err}")
-                raise credentials_exception
-        else:
-            raise credentials_exception
+        raise credentials_exception
 
-    # Find user by ID if present
     if user_id:
         result = await db.execute(select(User).filter(User.id == user_id))
         user = result.scalars().first()
         if user:
             return user
-
-    # Find or provision user by email if verified via Neon Auth
-    if neon_email:
-        result = await db.execute(select(User).filter(User.email == neon_email))
-        user = result.scalars().first()
-        if user:
-            return user
-        # Auto-provision user account
-        user = User(
-            id=str(uuid.uuid4()),
-            email=neon_email,
-            hashed_password="",
-            profile_data={"name": neon_name or ""}
-        )
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
-        return user
 
     raise credentials_exception
 

@@ -2,9 +2,8 @@ import React, { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe, exchangeNeonAuthSession, getNeonAuthConfig } from "../api/client";
+import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe } from "../api/client";
 import type { RoleInfo } from "../api/client";
-import { getNeonAuthClient } from "../auth/neonAuth";
 import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
@@ -35,7 +34,6 @@ interface ActiveMeetingData {
 
 export default function Dashboard() {
   const token = useAuthStore((state) => state.token);
-  const setToken = useAuthStore((state) => state.setToken);
   const setUser = useAuthStore((state) => state.setUser);
   const fetchSessions = useSessionStore((state) => state.fetchSessions);
   const addSession = useSessionStore((state) => state.addSession);
@@ -92,96 +90,6 @@ export default function Dashboard() {
 
   const endOfChatRef = useRef<HTMLDivElement>(null);
 
-  // Handle OAuth return from Neon Auth Google sign-in
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("neon_auth")) {
-      const handleNeonOAuthReturn = async () => {
-        try {
-          let neonAuthUrl = import.meta.env.VITE_NEON_AUTH_URL;
-          if (!neonAuthUrl) {
-            try {
-              const cfg = await getNeonAuthConfig();
-              neonAuthUrl = cfg.neon_auth_url;
-            } catch {
-              neonAuthUrl = "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth";
-            }
-          }
-
-          // 1. Extract any token directly from URL search or hash
-          const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-          let foundToken = params.get("session_token") || params.get("token") || hashParams.get("token") || hashParams.get("access_token") || undefined;
-
-          // 2. Query Neon Auth session using official Neon Auth SDK
-          if (!foundToken) {
-            try {
-              const authClient = getNeonAuthClient(neonAuthUrl);
-              const sessionRes = await authClient.getSession();
-              if ((sessionRes as any)?.data?.session?.token) {
-                foundToken = (sessionRes as any).data.session.token;
-              } else if ((sessionRes as any)?.session?.token) {
-                foundToken = (sessionRes as any).session.token;
-              } else if ((sessionRes as any)?.data?.token) {
-                foundToken = (sessionRes as any).data.token;
-              }
-            } catch (err) {
-              console.warn("Could not retrieve session from Neon Auth client directly:", err);
-            }
-          }
-
-          // 3. Fallback to /get-session with credentials include if SDK didn't return token in field
-          if (!foundToken) {
-            try {
-              const sessionRes = await fetch(`${neonAuthUrl}/get-session`, {
-                credentials: "include",
-              });
-              if (sessionRes.ok) {
-                const sessionData = await sessionRes.json();
-                foundToken = sessionData?.session?.token || sessionData?.token;
-              }
-            } catch (err) {
-              console.warn("Raw get-session query failed:", err);
-            }
-          }
-
-          // 4. Deterministically exchange verified, user-bound session token with backend
-          if (foundToken) {
-            const res = await exchangeNeonAuthSession(foundToken);
-            if (res && res.access_token) {
-              setToken(res.access_token);
-              if (res.user) setUser(res.user);
-              fetchSessions();
-
-              // Restore guest workspace state if saved before OAuth redirect
-              const savedGuest = sessionStorage.getItem("mashwara_guest_workspace");
-              if (savedGuest) {
-                try {
-                  const data = JSON.parse(savedGuest);
-                  if (data.messages && data.messages.length > 0) setMessages(data.messages);
-                  if (data.input) setInput(data.input);
-                  if (data.selectedTemplate) setSelectedTemplate(data.selectedTemplate);
-                } catch (parseErr) {
-                  console.warn("Failed to restore guest workspace:", parseErr);
-                }
-                sessionStorage.removeItem("mashwara_guest_workspace");
-              }
-            }
-          } else {
-            console.error("No valid user-bound Neon session token found after Google OAuth callback");
-          }
-        } catch (err) {
-          console.error("Neon Auth exchange error:", err);
-        } finally {
-          const url = new URL(window.location.href);
-          url.searchParams.delete("neon_auth");
-          url.searchParams.delete("token");
-          url.searchParams.delete("session_token");
-          window.history.replaceState({}, document.title, url.pathname);
-        }
-      };
-      handleNeonOAuthReturn();
-    }
-  }, [setToken, setUser, fetchSessions]);
 
   // Persist guest workspace temporarily before external OAuth redirect so conversations survive
   useEffect(() => {

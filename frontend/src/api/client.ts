@@ -238,15 +238,6 @@ export async function sendStandardMessage(sessionId: string, message: string): P
   return response.data;
 }
 
-export async function exchangeNeonAuthSession(sessionToken: string): Promise<any> {
-  const response = await apiClient.post("/auth/neon/exchange", { session_token: sessionToken });
-  return response.data;
-}
-
-export async function getNeonAuthConfig(): Promise<{ neon_auth_url: string; neon_auth_jwks_url?: string }> {
-  const response = await apiClient.get("/auth/neon/config");
-  return response.data;
-}
 
 export async function streamStandardMessage(
   sessionId: string | null,

@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@fontsource/noto-nastaliq-urdu": "^5.3.0",
-    "@neondatabase/neon-js": "^0.7.0-beta",
     "@tailwindcss/typography": "^0.5.20",
     "axios": "^1.18.1",
     "html2canvas-pro": "^2.4.1",
