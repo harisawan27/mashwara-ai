@@ -154,6 +154,21 @@ export async function healthCheck(): Promise<boolean> {
 // Auth & History API
 // ---------------------------------------------------------------------------
 
+export interface GoogleAuthResponse {
+  access_token: string;
+  token_type: string;
+  user: {
+    id: string;
+    email: string;
+    profile_data?: any;
+  };
+}
+
+export async function loginWithGoogle(credential: string): Promise<GoogleAuthResponse> {
+  const response = await apiClient.post<GoogleAuthResponse>("/auth/google", { credential });
+  return response.data;
+}
+
 export async function login(email: string, password: string): Promise<string> {
   const response = await apiClient.post("/auth/login", { email, password });
   return response.data.access_token;

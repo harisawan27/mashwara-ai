@@ -38,6 +38,13 @@ export const useAuthStore = create<AuthState>()(
         },
         logout: () => {
           localStorage.removeItem("token");
+          try {
+            if (window.google?.accounts?.id?.disableAutoSelect) {
+              window.google.accounts.id.disableAutoSelect();
+            }
+          } catch (e) {
+            console.warn("Could not disable Google auto-select:", e);
+          }
           set({ token: null, user: null });
         },
       };

@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "../store/authStore";
-import { login, register, getNeonAuthConfig } from "../api/client";
+import { useSessionStore } from "../store/sessionStore";
+import { login, register, loginWithGoogle } from "../api/client";
 import { useTranslation } from "../i18n";
-import { getNeonAuthClient } from "../auth/neonAuth";
 import { LocalizedBrand } from "./LocalizedBrand";
 
 interface AuthModalProps {
@@ -21,7 +21,12 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
   const [googleLoading, setGoogleLoading] = useState(false);
   
   const setToken = useAuthStore((state) => state.setToken);
+  const setUser = useAuthStore((state) => state.setUser);
+  const fetchSessions = useSessionStore((state) => state.fetchSessions);
   const { t, isRTL, language } = useTranslation();
+
+  const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+  const gsiInitializedRef = useRef(false);
 
   // Close on Escape key
   useEffect(() => {
@@ -36,6 +41,108 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isOpen, onClose]);
 
+  // Handle direct Google Identity Services ID token callback
+  const handleGoogleCredential = async (response: { credential: string }) => {
+    if (!response || !response.credential) {
+      console.warn("No Google credential returned in response");
+      return;
+    }
+
+    setError("");
+    setGoogleLoading(true);
+
+    try {
+      const res = await loginWithGoogle(response.credential);
+      if (res && res.access_token) {
+        setToken(res.access_token);
+        if (res.user) setUser(res.user);
+        fetchSessions();
+        if (onSuccess) onSuccess();
+        if (onClose) onClose();
+      } else {
+        throw new Error("Invalid response from auth server");
+      }
+    } catch (err: any) {
+      console.error("Google authentication failed:", err);
+      const detailMsg =
+        err.response?.data?.detail ||
+        err.message ||
+        t.auth.googleAuthFailed ||
+        "Google authentication failed. Please try again.";
+      setError(detailMsg);
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
+  // Initialize and render official Google Identity Services button
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setError("Google Sign-In configuration error: VITE_GOOGLE_CLIENT_ID is missing.");
+      return;
+    }
+
+    const renderGsiButton = () => {
+      if (!window.google?.accounts?.id || !googleBtnContainerRef.current) {
+        return false;
+      }
+
+      try {
+        if (!gsiInitializedRef.current) {
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: handleGoogleCredential,
+            auto_select: false,
+          });
+          gsiInitializedRef.current = true;
+        }
+
+        googleBtnContainerRef.current.innerHTML = "";
+
+        // Check if dark theme is currently active
+        const isDark = document.documentElement.classList.contains("dark");
+
+        window.google.accounts.id.renderButton(googleBtnContainerRef.current, {
+          type: "standard",
+          theme: isDark ? "filled_black" : "outline",
+          size: "large",
+          text: isLogin ? "signin_with" : "signup_with",
+          shape: "rectangular",
+          logo_alignment: "left",
+          width: 380,
+        });
+        return true;
+      } catch (err) {
+        console.error("Failed to render Google Identity Services button:", err);
+        return false;
+      }
+    };
+
+    if (!renderGsiButton()) {
+      // Poll briefly if GSI script is still downloading
+      const interval = setInterval(() => {
+        if (renderGsiButton()) {
+          clearInterval(interval);
+        }
+      }, 150);
+
+      const timeout = setTimeout(() => {
+        clearInterval(interval);
+        if (!window.google?.accounts?.id) {
+          setError("Google Identity Services failed to load. Please check your network or ad blocker.");
+        }
+      }, 6000);
+
+      return () => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [isOpen, isLogin]);
+
   if (!isOpen) return null;
 
   const passwordChecks = [
@@ -47,54 +154,6 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
   ];
 
   const isPasswordValid = passwordChecks.every((check) => check.valid);
-
-  const handleGoogleSignIn = async () => {
-    setError("");
-    setGoogleLoading(true);
-
-    try {
-      // Retrieve Neon Auth URL dynamically or use production fallback
-      let neonAuthUrl = import.meta.env.VITE_NEON_AUTH_URL;
-      if (!neonAuthUrl) {
-        try {
-          const cfg = await getNeonAuthConfig();
-          neonAuthUrl = cfg.neon_auth_url;
-        } catch {
-          neonAuthUrl = "https://ep-muddy-frog-adaf15fz.neonauth.c-2.us-east-1.aws.neon.tech/neondb/auth";
-        }
-      }
-
-      const callbackUrl = `${window.location.origin}/?neon_auth=1`;
-      const authClient = getNeonAuthClient(neonAuthUrl);
-
-      // Use official Neon Auth SDK social sign-in
-      const res = await authClient.signIn.social({
-        provider: "google",
-        callbackURL: callbackUrl,
-      });
-
-      if (res?.error) {
-        console.error("Google OAuth initiation failed", {
-          status: (res.error as any)?.status || 400,
-          code: (res.error as any)?.code || "OAUTH_INITIATION_FAILED",
-          message: res.error.message || "Failed to initiate Google OAuth",
-        });
-        throw new Error(res.error.message || "Failed to initiate Google OAuth");
-      }
-
-      if (res?.data?.url) {
-        window.location.href = res.data.url;
-      }
-    } catch (err: any) {
-      console.error("Google OAuth initiation failed", {
-        status: err?.status || err?.statusCode || 500,
-        code: err?.code || "OAUTH_INITIATION_FAILED",
-        message: err?.message || String(err),
-      });
-      setError(t.auth.googleAuthFailed);
-      setGoogleLoading(false);
-    }
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,6 +174,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
         tokenStr = await register(email, password);
       }
       setToken(tokenStr);
+      fetchSessions();
       if (onSuccess) onSuccess();
       if (onClose) onClose();
     } catch (err: any) {
@@ -142,7 +202,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           <button
             onClick={onClose}
             aria-label="Close"
-            className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all`}
+            className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all cursor-pointer`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -179,44 +239,21 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           </div>
         )}
 
-        {/* 1. Continue with Google (Neon Auth) */}
+        {/* 1. Official Google Identity Services Button */}
         <div className="space-y-4">
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={googleLoading || loading}
-            id="google-signin-btn"
-            className="w-full flex items-center justify-center gap-3 bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-800 dark:text-white font-medium py-3 rounded-xl shadow-sm transition-all h-[50px] disabled:opacity-50 disabled:cursor-not-allowed hover:shadow cursor-pointer"
-          >
-            {googleLoading ? (
+          {googleLoading ? (
+            <div className="w-full flex items-center justify-center gap-3 bg-white dark:bg-slate-800/90 border border-slate-300 dark:border-white/10 text-slate-800 dark:text-white font-medium py-3 rounded-xl shadow-sm h-[50px]">
               <svg className="animate-spin w-5 h-5 text-blue-600 dark:text-blue-400" viewBox="0 0 24 24" fill="none">
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-            ) : (
-              <>
-                <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                  <path
-                    fill="#4285F4"
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  />
-                  <path
-                    fill="#34A853"
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  />
-                  <path
-                    fill="#FBBC05"
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                  />
-                  <path
-                    fill="#EA4335"
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                  />
-                </svg>
-                <span className="text-sm font-semibold">{t.auth.continueWithGoogle}</span>
-              </>
-            )}
-          </button>
+              <span className="text-sm font-semibold">{t.common.loading || "Verifying with Google..."}</span>
+            </div>
+          ) : (
+            <div className="flex justify-center w-full min-h-[44px]">
+              <div ref={googleBtnContainerRef} id="google-signin-btn-container" className="w-full flex justify-center" />
+            </div>
+          )}
 
           {/* Divider: or / یا */}
           <div className="relative flex items-center justify-center my-4">

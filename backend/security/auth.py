@@ -52,8 +52,12 @@ def get_jwks_client():
             logger.warning(f"Could not initialize PyJWKClient with {NEON_AUTH_JWKS_URL}: {e}")
     return _jwks_client
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify password with direct bcrypt check and pwd_context fallback."""
+def verify_password(plain_password: str, hashed_password: str | None) -> bool:
+    """Verify password with direct bcrypt check and pwd_context fallback.
+    Returns False immediately if hashed_password is None or empty.
+    """
+    if not hashed_password or not isinstance(hashed_password, str) or not hashed_password.strip():
+        return False
     try:
         return bcrypt.checkpw(plain_password.encode("utf-8")[:72], hashed_password.encode("utf-8"))
     except Exception:

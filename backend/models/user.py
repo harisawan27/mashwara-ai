@@ -15,7 +15,8 @@ class User(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    google_sub = Column(String, unique=True, index=True, nullable=True)
+    hashed_password = Column(String, nullable=True, default=None)
     profile_data = Column(JSON_TYPE, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
 

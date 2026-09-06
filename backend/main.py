@@ -63,6 +63,13 @@ import re
 from sqlalchemy.orm import selectinload
 from google import genai
 import google.genai.types as genai_types
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
+GOOGLE_CLIENT_ID = os.getenv(
+    "GOOGLE_CLIENT_ID",
+    "971578232755-a7f5t6c31if3k69t9udurfiac48nnjj3.apps.googleusercontent.com"
+)
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -107,8 +114,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 # ---------------------------------------------------------------------------
 # CORS configuration — origins loaded from env var
 # ---------------------------------------------------------------------------
-allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "*")
-allowed_origins = [o.strip() for o in allowed_origins_str.split(",")]
+allowed_origins_str = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,https://mashwara-ai.vercel.app"
+)
+allowed_origins = [o.strip() for o in allowed_origins_str.split(",") if o.strip() and o.strip() != "*"]
 
 app.add_middleware(
     CORSMiddleware,
@@ -164,6 +174,9 @@ class StandardMessageRequest(BaseModel):
     message: str
     language: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
+
+class GoogleAuthRequest(BaseModel):
+    credential: str
 
 class NeonAuthExchangeRequest(BaseModel):
     session_token: str
@@ -242,7 +255,7 @@ async def register_user(user: UserCreate, db: AsyncSession = Depends(get_db)):
 async def login(user: UserCreate, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).filter(User.email == user.email))
     db_user = result.scalars().first()
-    if not db_user or not verify_password(user.password, db_user.hashed_password):
+    if not db_user or not db_user.hashed_password or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -250,6 +263,146 @@ async def login(user: UserCreate, db: AsyncSession = Depends(get_db)):
         )
     access_token = create_access_token(data={"sub": db_user.id})
     return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/google", tags=["Auth"])
+@limiter.limit("30/minute")
+async def auth_google(
+    request: Request,
+    body: GoogleAuthRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Direct Google Identity Services authentication.
+    Verifies official Google ID token signature, audience, expiration, issuer, and claims.
+    Resolves user deterministically via google_sub (or verified email) and returns Mashwara JWT.
+    """
+    credential = (body.credential or "").strip()
+    if not credential:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google ID token credential is required"
+        )
+
+    # 1. Verify Google ID token via official google-auth library
+    try:
+        payload = id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
+    except ValueError as val_err:
+        logger.warning(f"Google ID token signature/expiration/audience verification failed: {val_err}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid Google credential: {str(val_err)}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    except Exception as exc:
+        logger.error(f"Unexpected error during Google verification: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not verify Google credential",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 2. Strict claim validations
+    issuer = payload.get("iss")
+    if issuer not in ["accounts.google.com", "https://accounts.google.com"]:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token issuer",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    sub = payload.get("sub")
+    if not sub or not str(sub).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing Google identity (sub)"
+        )
+    sub = str(sub).strip()
+
+    email = payload.get("email")
+    if not email or not str(email).strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing email in Google token"
+        )
+    email = str(email).strip().lower()
+
+    email_verified = payload.get("email_verified")
+    if email_verified is not True and str(email_verified).lower() != "true":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Google email address is not verified"
+        )
+
+    google_name = (payload.get("name") or "").strip()
+    google_picture = (payload.get("picture") or "").strip()
+
+    # 3. User resolution:
+    # A. google_sub already linked -> login same Mashwara user
+    res_sub = await db.execute(select(User).filter(User.google_sub == sub))
+    user = res_sub.scalars().first()
+
+    if not user:
+        # B. No google_sub, but verified Google email matches existing Mashwara user -> link google_sub
+        res_email = await db.execute(select(User).filter(User.email == email))
+        user = res_email.scalars().first()
+        if user:
+            user.google_sub = sub
+            profile = dict(user.profile_data or {})
+            updated = False
+            if not profile.get("name") and google_name:
+                profile["name"] = google_name
+                updated = True
+            if not profile.get("avatar") and google_picture:
+                profile["avatar"] = google_picture
+                updated = True
+            if updated:
+                user.profile_data = profile
+            await db.commit()
+            await db.refresh(user)
+            logger.info(f"Linked existing user {email} to google_sub {sub}")
+        else:
+            # C. No matching account -> create new Mashwara user (hashed_password=None for Google-only users)
+            user = User(
+                id=str(uuid.uuid4()),
+                email=email,
+                google_sub=sub,
+                hashed_password=None,
+                profile_data={"name": google_name, "avatar": google_picture}
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
+            logger.info(f"Created new Google-authenticated user {email} with google_sub {sub}")
+    else:
+        # Update name or picture if missing
+        profile = dict(user.profile_data or {})
+        updated = False
+        if not profile.get("name") and google_name:
+            profile["name"] = google_name
+            updated = True
+        if not profile.get("avatar") and google_picture:
+            profile["avatar"] = google_picture
+            updated = True
+        if updated:
+            user.profile_data = profile
+            await db.commit()
+            await db.refresh(user)
+
+    # 4. Issue standard Mashwara application JWT
+    jwt_token = create_access_token(data={"sub": str(user.id)})
+    return {
+        "access_token": jwt_token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "profile_data": user.profile_data
+        }
+    }
 
 @app.get("/auth/neon/config", tags=["Auth"])
 async def get_neon_auth_config():
