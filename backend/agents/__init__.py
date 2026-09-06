@@ -630,7 +630,11 @@ Specialist Analyses (Round 1):
     report_dict = {
         "meeting_id": meeting_id,
         "template": template_key,
-        "decision_title": fields.get("decision_title", "Mashwara Consultation"),
+        "decision_title": (
+            fields.get("decision_title")
+            if (fields.get("decision_title") and fields.get("decision_title") != "Mashwara Consultation")
+            else ("مشاورتی رپورٹ" if target_lang == "ur" else "Mashwara Consultation")
+        ),
         "final_decision": final_decision,
         "confidence_score": conf_score,
         "board_votes": final_votes,

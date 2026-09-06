@@ -239,6 +239,12 @@ export async function sendStandardMessage(sessionId: string, message: string): P
 }
 
 
+export interface StandardChatAction {
+  type?: string;
+  action: string;
+  decision_prompt: string;
+}
+
 export async function streamStandardMessage(
   sessionId: string | null,
   message: string,
@@ -247,7 +253,8 @@ export async function streamStandardMessage(
   onError: (error: string) => void,
   onComplete: () => void,
   abortSignal?: AbortSignal,
-  history?: Array<{ role: string; content: string }>
+  history?: Array<{ role: string; content: string }>,
+  onAction?: (actionData: StandardChatAction) => void
 ) {
   try {
     const token = localStorage.getItem("token");
@@ -280,36 +287,76 @@ export async function streamStandardMessage(
 
     const reader = response.body.getReader();
     const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    let isCompleted = false;
+
+    const triggerComplete = () => {
+      if (!isCompleted) {
+        isCompleted = true;
+        onComplete();
+      }
+    };
 
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
+        const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+        if (cleanLine.startsWith("data: ")) {
+          const dataStr = cleanLine.substring(6);
           try {
-            const dataStr = line.substring("data: ".length);
-            if (!dataStr) continue;
-            
             const data = JSON.parse(dataStr);
-            if (data.type === "thinking" && data.text) {
+            if (data.type === "action") {
+              if (onAction) {
+                onAction({ action: data.action, decision_prompt: data.decision_prompt });
+              }
+            } else if (data.type === "thinking" && data.text) {
               onThinking(data.text);
             } else if (data.type === "chunk" && data.text) {
               onChunk(data.text);
             } else if (data.type === "error") {
               onError(data.message);
             } else if (data.type === "done") {
-              onComplete();
+              triggerComplete();
             }
           } catch (e) {
-            console.error("Error parsing SSE line", line, e);
+            console.error("Failed to parse SSE data", e, dataStr);
           }
         }
       }
     }
+
+    if (buffer) {
+      const cleanLine = buffer.endsWith("\r") ? buffer.slice(0, -1) : buffer;
+      if (cleanLine.startsWith("data: ")) {
+        const dataStr = cleanLine.substring(6);
+        try {
+          const data = JSON.parse(dataStr);
+          if (data.type === "action") {
+            if (onAction) {
+              onAction({ action: data.action, decision_prompt: data.decision_prompt });
+            }
+          } else if (data.type === "thinking" && data.text) {
+            onThinking(data.text);
+          } else if (data.type === "chunk" && data.text) {
+            onChunk(data.text);
+          } else if (data.type === "error") {
+            onError(data.message);
+          } else if (data.type === "done") {
+            triggerComplete();
+          }
+        } catch (e) {
+          console.error("Failed to parse trailing SSE data", e, dataStr);
+        }
+      }
+    }
+
+    triggerComplete();
   } catch (error: any) {
     if (error.name === 'AbortError') {
       onError("Generation stopped.");

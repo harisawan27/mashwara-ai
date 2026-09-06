@@ -161,6 +161,9 @@ export interface TranslationSchema {
     reject: string;
     defer: string;
   };
+  report: {
+    consultationTitle: string;
+  };
   tutorial: {
     guideTitle?: string;
     stepOf?: string;

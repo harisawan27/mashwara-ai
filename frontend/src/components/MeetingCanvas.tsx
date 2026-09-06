@@ -11,6 +11,7 @@ import { useAuthStore } from "../store/authStore";
 import { createSharedMashwara, type RoleInfo } from "../api/client";
 import MashwaraResultView from "./MashwaraResultView";
 import { exportMashwaraPdf } from "../utils/pdfExport";
+import { isVisibleExpert } from "../utils/roleVisibility";
 
 interface AgentStreamState {
   status: "idle" | "thinking" | "done" | "waiting";
@@ -80,14 +81,16 @@ export default function MeetingCanvas({
 
   if (!isOpen) return null;
 
-  const defaultTitle = t.canvas.boardMeeting;
-  const displayDecisionTitle = decisionTitle || defaultTitle;
+  const defaultTitle = t.report?.consultationTitle || t.share.mashwaraReport || t.canvas.boardMeeting;
+  const displayDecisionTitle = (!decisionTitle || decisionTitle === "Mashwara Consultation" || decisionTitle === "Board Meeting" || decisionTitle === "مشاورتی رپورٹ")
+    ? defaultTitle
+    : decisionTitle;
   const hasReport = !!report;
   const decStyle = token(report?.final_decision, t);
   const templateLabel = t.templates[template]?.name || template.replace(/_BOARD$/, "").replace(/_/g, " ");
 
-  const roles = rolesInfo?.filter((r: any) => r.key !== "Moderator" && r.key !== "lead_advisor" && !r.is_moderator) || [];
-  const activeStreams = streams ? Object.keys(streams).filter((k) => k !== "_roles" && streams[k]?.status !== "idle") : [];
+  const roles = rolesInfo?.filter(isVisibleExpert) || [];
+  const activeStreams = streams ? Object.keys(streams).filter((k) => k !== "_roles" && isVisibleExpert({ key: k }) && streams[k]?.status !== "idle") : [];
   const doneCount = activeStreams.filter((k) => streams![k]?.status === "done").length;
   const totalAgents = roles.length;
 

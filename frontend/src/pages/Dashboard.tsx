@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe } from "../api/client";
 import type { RoleInfo } from "../api/client";
+import { isVisibleExpert } from "../utils/roleVisibility";
 import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
@@ -89,6 +90,26 @@ export default function Dashboard() {
   const [activeMeetingData, setActiveMeetingData] = useState<ActiveMeetingData | null>(null);
 
   const endOfChatRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isStartingMashwaraRef = useRef(false);
+
+  // Auto-grow chat composer up to ~5 lines using actual scrollHeight
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+
+    el.style.height = "auto";
+    const computed = window.getComputedStyle(el);
+    const lineHeight = parseFloat(computed.lineHeight) || (computed.fontSize ? parseFloat(computed.fontSize) * 1.5 : 24);
+    const paddingTop = parseFloat(computed.paddingTop) || 14;
+    const paddingBottom = parseFloat(computed.paddingBottom) || 14;
+    const minHeight = parseFloat(computed.minHeight) || 56;
+    const maxHeight = Math.round(lineHeight * 5 + paddingTop + paddingBottom);
+
+    const targetHeight = Math.max(minHeight, Math.min(el.scrollHeight, maxHeight));
+    el.style.height = `${targetHeight}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [input]);
 
 
   // Persist guest workspace temporarily before external OAuth redirect so conversations survive
@@ -216,7 +237,16 @@ export default function Dashboard() {
           setIsProcessing(false);
         },
         abortControllerRef.current.signal,
-        recentHistory
+        recentHistory,
+        async (actionData) => {
+          if (actionData.action === "start_mashwara") {
+            const canonicalDilemma = actionData.decision_prompt || userText;
+            abortControllerRef.current?.abort();
+            setIsProcessing(false);
+            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: t.chat.conveneNotice, is_agentic: true } : m));
+            await startMashwara(canonicalDilemma);
+          }
+        }
       );
     } catch (err) {
       console.error(err);
@@ -267,7 +297,16 @@ export default function Dashboard() {
           setIsProcessing(false);
         },
         abortControllerRef.current.signal,
-        recentHistory
+        recentHistory,
+        async (actionData) => {
+          if (actionData.action === "start_mashwara") {
+            const canonicalDilemma = actionData.decision_prompt || userText;
+            abortControllerRef.current?.abort();
+            setIsProcessing(false);
+            setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: t.chat.conveneNotice, is_agentic: true } : m));
+            await startMashwara(canonicalDilemma);
+          }
+        }
       );
     } catch (err) {
       console.error(err);
@@ -275,12 +314,13 @@ export default function Dashboard() {
     }
   };
 
-  const handleConveneBoard = async () => {
-    if (!input.trim() || isProcessing) return;
+  const startMashwara = async (dilemmaText: string) => {
+    const userText = dilemmaText.trim();
+    if (!userText || isStartingMashwaraRef.current) return;
 
-    const userText = input.trim();
-    setInput("");
+    isStartingMashwaraRef.current = true;
     setIsProcessing(true);
+    setIsConveneBoardSelected(true);
 
     try {
       let sessionId = activeSessionId;
@@ -310,7 +350,7 @@ export default function Dashboard() {
 
       const newMeetingData: ActiveMeetingData = {
         template: selectedTemplate,
-        decisionTitle: t.canvas.liveDeliberation,
+        decisionTitle: userText,
         streams: {},
       };
       
@@ -327,7 +367,7 @@ export default function Dashboard() {
             if (!prev) return prev;
             const initialStreams: any = {};
             roles.forEach(r => {
-              if (r.key !== "Moderator") {
+              if (isVisibleExpert(r)) {
                 initialStreams[r.key] = { text: "", thinking: "", status: "idle" };
               }
             });
@@ -335,6 +375,7 @@ export default function Dashboard() {
           });
         },
         (agent, text) => {
+          if (!isVisibleExpert({ key: agent })) return;
           setActiveMeetingData((prev: ActiveMeetingData | null) => {
             if (!prev || !prev.streams || !prev.streams[agent]) return prev;
             const updatedStreams = { ...prev.streams };
@@ -347,6 +388,7 @@ export default function Dashboard() {
           });
         },
         (agent, text) => {
+          if (!isVisibleExpert({ key: agent })) return;
           setActiveMeetingData((prev: ActiveMeetingData | null) => {
             if (!prev || !prev.streams || !prev.streams[agent]) return prev;
             const updatedStreams = { ...prev.streams };
@@ -359,6 +401,7 @@ export default function Dashboard() {
           });
         },
         (agent, status, message) => {
+          if (!isVisibleExpert({ key: agent })) return;
           setActiveMeetingData((prev: ActiveMeetingData | null) => {
             if (!prev || !prev.streams || !prev.streams[agent]) return prev;
             const updatedStreams = { ...prev.streams };
@@ -392,15 +435,18 @@ export default function Dashboard() {
             return { ...prev, streams: frozen };
           });
           setIsProcessing(false);
+          isStartingMashwaraRef.current = false;
           if (sessionId) loadSession(sessionId as string);
         },
         () => {
           setIsProcessing(false);
-          loadSession(sessionId as string);
+          isStartingMashwaraRef.current = false;
+          if (sessionId) loadSession(sessionId as string);
         },
         abortControllerRef.current.signal,
         // onFinal: replace raw streamed text with clean post-processed version
         (agent, text, thinking) => {
+          if (!isVisibleExpert({ key: agent })) return;
           setActiveMeetingData((prev: ActiveMeetingData | null) => {
             if (!prev || !prev.streams) return prev;
             const updatedStreams = { ...prev.streams };
@@ -417,7 +463,15 @@ export default function Dashboard() {
     } catch (err) {
       console.error(err);
       setIsProcessing(false);
+      isStartingMashwaraRef.current = false;
     }
+  };
+
+  const handleConveneBoard = async () => {
+    if (!input.trim() || isProcessing) return;
+    const userText = input.trim();
+    setInput("");
+    await startMashwara(userText);
   };
 
   return (
@@ -700,14 +754,15 @@ export default function Dashboard() {
             <div className={`bg-white dark:bg-slate-900/90 backdrop-blur-md border rounded-2xl shadow-lg dark:shadow-none overflow-visible transition-all ${isConveneBoardSelected ? 'border-blue-500/50 shadow-blue-500/10 ring-1 ring-blue-500/20' : 'border-slate-200 dark:border-white/10 focus-within:ring-2 focus-within:ring-blue-500/50'}`}>
               
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={() => {
                   // Let default behavior (newline) happen for Enter, including Shift+Enter
                 }}
                 placeholder={t.chat.inputPlaceholder}
-                className="w-full bg-transparent border-none py-3.5 sm:py-4 px-4 sm:px-5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:ring-0 resize-none max-h-48 custom-scrollbar text-sm sm:text-base outline-none"
-                rows={Math.min(input.split("\n").length, 5) || 1}
+                className="w-full bg-transparent border-none py-3.5 sm:py-4 px-4 sm:px-5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:ring-0 resize-none custom-scrollbar text-sm sm:text-base outline-none"
+                rows={1}
                 style={{ minHeight: '56px' }}
               />
 

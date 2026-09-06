@@ -168,6 +168,9 @@ export const en: TranslationSchema = {
     reject: "REJECTED",
     defer: "DEFERRED",
   },
+  report: {
+    consultationTitle: "Mashwara Consultation",
+  },
   tutorial: {
     guideTitle: "Mashwara AI Guide",
     stepOf: "Step {current} of {total}",

@@ -167,6 +167,9 @@ export const ur: TranslationSchema = {
     reject: "ناموافق",
     defer: "مزید غور درکار",
   },
+  report: {
+    consultationTitle: "مشاورتی رپورٹ",
+  },
   tutorial: {
     guideTitle: "مشورہ گائیڈ",
     stepOf: "مرحلہ {current} از {total}",

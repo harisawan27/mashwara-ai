@@ -168,6 +168,9 @@ export const romanUrdu: TranslationSchema = {
     reject: "Nahi",
     defer: "Mazeed soch zaroori hai",
   },
+  report: {
+    consultationTitle: "Mashwara Consultation",
+  },
   tutorial: {
     guideTitle: "Mashwara AI Guide",
     stepOf: "Step {current} of {total}",

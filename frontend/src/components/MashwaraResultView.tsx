@@ -13,6 +13,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
 import { useTranslation } from "../i18n";
+import { isVisibleExpert } from "../utils/roleVisibility";
 import type { RoleInfo, SharedMashwaraExpert } from "../api/client";
 
 export interface MashwaraResultViewProps {
@@ -172,9 +173,9 @@ export default function MashwaraResultView({
   // Normalize roles: prioritize rolesInfo, fallback to experts array from snapshot, or actual voted agents in report.board_votes
   const roles: any[] =
     rolesInfo && rolesInfo.length > 0
-      ? rolesInfo.filter((r: any) => r.key !== "Moderator" && r.key !== "lead_advisor" && !r.is_moderator)
+      ? rolesInfo.filter(isVisibleExpert)
       : (experts && experts.length > 0)
-      ? experts.map((e) => ({
+      ? experts.filter(isVisibleExpert).map((e) => ({
           key: e.role_id,
           role_id: e.role_id,
           name: e.name,
@@ -184,15 +185,17 @@ export default function MashwaraResultView({
           color: e.color || "from-blue-500 to-blue-700",
         }))
       : report?.board_votes
-      ? Object.keys(report.board_votes).map((agentKey) => ({
-          key: agentKey,
-          role_id: agentKey,
-          name: t.agents[agentKey]?.title || agentKey,
-          title: t.agents[agentKey]?.role || "Specialist",
-          description: "",
-          icon: "👔",
-          color: "from-blue-500 to-indigo-600",
-        }))
+      ? Object.keys(report.board_votes)
+          .filter((agentKey) => isVisibleExpert({ key: agentKey }))
+          .map((agentKey) => ({
+            key: agentKey,
+            role_id: agentKey,
+            name: t.agents[agentKey]?.title || agentKey,
+            title: t.agents[agentKey]?.role || "Specialist",
+            description: "",
+            icon: "👔",
+            color: "from-blue-500 to-indigo-600",
+          }))
       : [];
 
   const moderator = rolesInfo?.find((r: any) => r.key === "Moderator" || r.key === "lead_advisor" || r.is_moderator);
@@ -211,7 +214,7 @@ export default function MashwaraResultView({
   }
 
   const activeStreams = Object.keys(effectiveStreams).filter(
-    (k) => k !== "_roles" && effectiveStreams[k]?.status !== "idle"
+    (k) => k !== "_roles" && isVisibleExpert({ key: k }) && effectiveStreams[k]?.status !== "idle"
   );
   const doneCount = activeStreams.filter((k) => effectiveStreams[k]?.status === "done").length;
   const totalAgents = roles.length;
@@ -220,7 +223,11 @@ export default function MashwaraResultView({
 
   const templateLabel =
     t.templates[template]?.name || template.replace(/_BOARD$/, "").replace(/_/g, " ");
-  const displayDecisionTitle = decisionTitle || t.canvas.boardMeeting;
+  const consultationFallbackTitle = t.report?.consultationTitle || t.share.mashwaraReport || t.canvas.boardMeeting;
+  const rawTitle = report?.decision_title || decisionTitle;
+  const displayDecisionTitle = (!rawTitle || rawTitle === "Mashwara Consultation" || rawTitle === "Board Meeting" || rawTitle === "مشاورتی رپورٹ")
+    ? consultationFallbackTitle
+    : rawTitle;
 
   // ───────────────────────────────────────────────────────────────────────────
   // Sub-section: Mahireen ki Raaye (Expert Deliberations)
@@ -332,19 +339,6 @@ export default function MashwaraResultView({
               </article>
             );
           })}
-
-          {/* Moderator (if present in streams) */}
-          {moderator && effectiveStreams[moderator.key] && effectiveStreams[moderator.key].status !== "idle" && (
-            <div className="sm:col-span-2">
-              <AgentStream
-                role={moderator}
-                thinking={effectiveStreams[moderator.key].thinking}
-                text={effectiveStreams[moderator.key].text}
-                status={effectiveStreams[moderator.key].status}
-                isModerator
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -842,7 +836,7 @@ export default function MashwaraResultView({
         <div data-pdf-section="report-divider" className="py-2 flex items-center gap-3">
           <div className="flex-1 h-px bg-slate-300" />
           <span className="text-xs font-bold text-slate-500 uppercase tracking-widest px-2">
-            Mashwara Report
+            {t.share.mashwaraReport || "Mashwara Report"}
           </span>
           <div className="flex-1 h-px bg-slate-300" />
         </div>

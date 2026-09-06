@@ -12,6 +12,7 @@ import os
 import uuid
 import logging
 import json
+import asyncio
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -551,6 +552,171 @@ async def delete_last_turn(
     return {"status": "success"}
 
 
+# ---------------------------------------------------------------------------
+# Standard Chat Language Contract, Tools & Validation
+# ---------------------------------------------------------------------------
+START_MASHWARA_TOOL = genai_types.Tool(
+    function_declarations=[
+        genai_types.FunctionDeclaration(
+            name="start_mashwara",
+            description=(
+                "Convene the full Mashwara council of 6 expert advisors to analyze the user's decision dilemma. "
+                "Call this tool IMMEDIATELY when the user confirms or requests to start, convene, or proceed with "
+                "the Mashwara council (e.g. 'ہاں شروع کرو', 'start it', 'haan start karo', 'convene council', 'yes go ahead', 'ٹھیک ہے شروع کرو'). "
+                "Do NOT call this tool if the user is merely exploring or discussing without confirming they want to start."
+            ),
+            parameters=genai_types.Schema(
+                type="OBJECT",
+                properties={
+                    "decision_prompt": genai_types.Schema(
+                        type="STRING",
+                        description=(
+                            "The canonical substantive decision or dilemma under discussion from the conversation history, "
+                            "NOT the confirmation phrase itself (e.g. NOT 'ہاں شروع کرو' or 'yes start it')."
+                        )
+                    )
+                },
+                required=["decision_prompt"]
+            )
+        )
+    ]
+)
+
+AFFIRMATION_PATTERNS = [
+    r"^(ہاں|جی ہاں|ہاں جی|شروع کرو|مشورہ شروع کرو|کونسل بلا لو|ٹھیک ہے|اوکے|کر دو|شروع کر دو|مکمل مشورہ کرو|شروع کریں|کریں|چلو شروع کرو)",
+    r"^(haan|ji haan|haan ji|shuru karo|start karo|okay shuru karo|kardo|start kardo|full mashwara start karo|chalo shuru karo|haan start|okay start|theek hai|yes convene)",
+    r"^(yes|yeah|yep|start it|start the mashwara|go ahead|convene it|convene the council|please start|lets do it|do it|okay start|sure)"
+]
+
+def resolve_canonical_dilemma(raw_prompt: str, history_messages: list, current_message: str) -> str:
+    """
+    Ensures the council dilemma is the substantive decision under discussion,
+    never a short affirmation like 'ہاں شروع کرو' or 'yes start it'.
+    """
+    clean_prompt = (raw_prompt or "").strip()
+    is_affirmation = False
+    
+    if len(clean_prompt) < 15:
+        for pat in AFFIRMATION_PATTERNS:
+            if re.search(pat, clean_prompt, re.IGNORECASE):
+                is_affirmation = True
+                break
+                
+    if clean_prompt and not is_affirmation:
+        return clean_prompt
+
+    # Search backwards through user history for the last substantive message
+    for m in reversed(history_messages):
+        role = getattr(m, "role", None) or (m.get("role") if isinstance(m, dict) else None)
+        content = ""
+        if hasattr(m, "content"):
+            content = m.content or ""
+        elif isinstance(m, dict):
+            content = m.get("content", "")
+        
+        if role in ("user",):
+            content_clean = content.strip()
+            if len(content_clean) >= 10:
+                is_sub_affirmation = any(re.search(pat, content_clean, re.IGNORECASE) for pat in AFFIRMATION_PATTERNS)
+                if not is_sub_affirmation:
+                    return content_clean
+
+    if len(current_message.strip()) >= 10 and not any(re.search(pat, current_message.strip(), re.IGNORECASE) for pat in AFFIRMATION_PATTERNS):
+        return current_message.strip()
+        
+    return clean_prompt or current_message.strip()
+
+ARABIC_EXCLUSIVE_MARKERS = [
+    "إليك", "يسعدنا", "نحيطكم", "سنوافيكم", "كافة", "طلبكم", "تواصلكم",
+    "عزيزي", "عزيزتي", "يرجى", "يمكنك", "نود", "نرجو", "لدينا", "بكم",
+    "الذي", "التي", "الذين", "هذا", "هذه", "هؤلاء", "ذلك", "تلك",
+    "في", "على", "إلى", "عن", "حيث", "بينما", "أيضاً"
+]
+
+URDU_CORE_MARKERS = [
+    "ہے", "ہیں", "تھا", "تھی", "تھے", "ہو", "ہوں", "گا", "گی", "گے",
+    "کا", "کی", "کے", "کو", "سے", "میں", "پر", "نے", "اور", "کہ",
+    "آپ", "ہم", "یہ", "وہ", "نہیں", "کریں", "کرتے", "کرتا", "کرتی"
+]
+
+def is_arabic_response(text: str) -> bool:
+    """
+    Detects if the text strongly appears to be Arabic rather than Pakistani Urdu.
+    Checks for explicit Arabic business clichés or presence of Arabic prepositions
+    combined with complete absence of Pakistani Urdu auxiliary/postposition markers.
+    """
+    if not text or not text.strip():
+        return False
+        
+    high_confidence_arabic = ["إليك", "يسعدنا", "نحيطكم", "سنوافيكم", "طلبكم", "تواصلكم"]
+    for marker in high_confidence_arabic:
+        if re.search(r'\b' + re.escape(marker) + r'\b', text):
+            return True
+
+    words = re.findall(r'[\u0600-\u06FF]+', text)
+    if len(words) < 4:
+        return False
+
+    arabic_marker_count = sum(1 for w in words if w in ARABIC_EXCLUSIVE_MARKERS)
+    urdu_marker_count = sum(1 for w in words if w in URDU_CORE_MARKERS)
+
+    if arabic_marker_count >= 2 and urdu_marker_count <= 1:
+        return True
+
+    if arabic_marker_count >= 3 and arabic_marker_count > urdu_marker_count:
+        return True
+
+    return False
+
+def build_standard_chat_system_prompt(target_lang: str) -> str:
+    """
+    Unified, authoritative standard-chat system prompt across all endpoints.
+    Enforces strict Pakistani Urdu contract with explicit prohibition of Arabic.
+    """
+    if target_lang == "ur":
+        return (
+            "آپ مشورہ اے آئی (Mashwara AI) کے مشاورتی معاون ہیں۔ "
+            "آپ صارف کے فیصلے یا مسئلے کو بغور سمجھتے ہیں، اگر ضروری ہو تو مختصر اور اہم وضاحتی سوال پوچھتے ہیں، "
+            "ابتدائی مفید مشورہ دیتے ہیں، اور جہاں مختلف ماہرین کے زاویوں کی ضرورت ہو وہاں مکمل مشورہ کونسل شروع کرنے کی تجویز دیتے ہیں۔\n\n"
+            "LANGUAGE CONTRACT — HIGHEST PRIORITY:\n"
+            "- جواب صرف قدرتی پاکستانی اردو میں دیں۔\n"
+            "- اردو رسم الخط استعمال کریں۔\n"
+            "- عربی زبان میں جواب ہرگز نہ دیں۔\n"
+            "- فارسی یا ہندی/دیوناگری میں جواب نہ دیں۔\n"
+            "- عربی طرز کی رسمی عبارتیں مثلاً 'إليك'، 'يسعدنا'، 'نحيطكم'، 'كافة'، 'سنوافيكم' استعمال نہ کریں۔\n"
+            "- پاکستانی صارف سے قدرتی، صاف اور جدید اردو میں بات کریں۔\n"
+            "- AI, PDF, CGPA, Upwork, Fiverr, software وغیرہ جیسے عام technical terms جہاں قدرتی ہوں Latin script میں رہ سکتے ہیں۔\n"
+            "- صارف کی زبان اردو ہو تو پورے conversational response کی بنیادی زبان اردو ہی رہنی چاہیے۔\n"
+            "- کسی دوسری زبان میں switch نہ کریں جب تک صارف خود واضح طور پر نہ کہے۔\n\n"
+            "COUNCIL ACTION RULE:\n"
+            "- اگر صارف واضح طور پر کونسل یا مکمل مشورہ شروع کرنے کی تصدیق یا درخواست کرے (مثلاً 'ہاں شروع کرو'، 'شروع کرو'، 'کونسل بلا لو'، 'ٹھیک ہے مکمل مشورہ کرو') "
+            "تو بغیر کسی فالتو بات یا خالی وعدے کے فوراً start_mashwara ٹول کال کریں۔ گفتگو کی تاریخ میں سے اصل فیصلے کا سوال decision_prompt میں بھیجیں۔"
+        )
+    elif target_lang == "roman-ur":
+        return (
+            "Aap Mashwara AI ke Mashwara Assistant hain. "
+            "Aap user ke decision ya confusion ko achi tarah samajhte hain, zaroorat parne par focused sawal poochte hain, "
+            "lightweight practical guidance dete hain, aur jahan multi-agent council ki zaroorat ho wahan full Mashwara start karne ka mashwara dete hain.\n\n"
+            "LANGUAGE CONTRACT:\n"
+            "- Respond in natural, modern Pakistani Roman Urdu, not Hindi transliteration and not English-only.\n"
+            "- Technical/professional terms (AI, salary, job, freelancing, budget, client, risk, software) can remain in standard Latin script.\n\n"
+            "COUNCIL ACTION RULE:\n"
+            "- If the user confirms or asks to start Mashwara (e.g. 'haan start karo', 'okay shuru karo', 'full mashwara start karo', 'yes convene it'), "
+            "immediately call the start_mashwara tool with the substantive dilemma under discussion. Do not produce chit-chat instead of calling the tool."
+        )
+    else:
+        return (
+            "You are the Mashwara Assistant on Mashwara AI. "
+            "You help users clarify their decisions, ask decisive questions when necessary, provide concise helpful guidance, "
+            "and recommend convening a full Mashwara expert consultation when multiple specialist perspectives would add value.\n\n"
+            "LANGUAGE CONTRACT:\n"
+            "- Respond in clear, professional English.\n\n"
+            "COUNCIL ACTION RULE:\n"
+            "- If the user confirms or requests to convene the council (e.g. 'yes start it', 'start the mashwara', 'go ahead', 'convene the council'), "
+            "immediately call the start_mashwara tool with the canonical substantive dilemma under discussion from conversation history."
+        )
+
+
 @app.post("/chat/message", response_model=ChatMessageResponse, tags=["Chat"])
 async def send_standard_message(
     body: StandardMessageRequest, 
@@ -585,26 +751,7 @@ async def send_standard_message(
     contents = []
     # Language resolution & System context
     target_lang, _ = resolve_consultation_language(body.language, body.message)
-    if target_lang == "ur":
-        system_prompt = (
-            "آپ مشورہ اے آئی (Mashwara AI) کے مشاورتی معاون ہیں۔ "
-            "آپ صارف کے فیصلے یا مسئلے کو بغور سمجھتے ہیں، اگر ضروری ہو تو مختصر اور اہم وضاحتی سوال پوچھتے ہیں، "
-            "ابتدائی مفید مشورہ دیتے ہیں، اور جہاں مختلف ماہرین کے زاویوں کی ضرورت ہو وہاں مکمل مشورہ کونسل شروع کرنے کی تجویز دیتے ہیں۔ "
-            "سلیس اور شستہ اردو میں بات کریں۔ کوئی غیر ضروری لمبا جواب نہ دیں۔"
-        )
-    elif target_lang == "roman-ur":
-        system_prompt = (
-            "Aap Mashwara AI ke Mashwara Assistant hain. "
-            "Aap user ke decision ya confusion ko achi tarah samajhte hain, zaroorat parne par focused sawal poochte hain, "
-            "lightweight practical guidance dete hain, aur jahan multi-agent council ki zaroorat ho wahan full Mashwara start karne ka mashwara dete hain. "
-            "Natural modern Pakistani Roman Urdu mein baat karein."
-        )
-    else:
-        system_prompt = (
-            "You are the Mashwara Assistant on Mashwara AI. "
-            "You help users clarify their decisions, ask decisive questions when necessary, provide concise helpful guidance, "
-            "and recommend convening a full Mashwara expert consultation when multiple specialist perspectives would add value."
-        )
+    system_prompt = build_standard_chat_system_prompt(target_lang)
 
     if current_user.profile_data:
         system_prompt += f"\nUser Context: {json.dumps(current_user.profile_data)}"
@@ -612,7 +759,6 @@ async def send_standard_message(
     # Build history for Gemini
     for m in history:
         if m.role == "user" or m.role == "assistant":
-            # For Gemini, role is "user" or "model"
             r = "model" if m.role == "assistant" else "user"
             contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=m.content)]))
 
@@ -621,11 +767,34 @@ async def send_standard_message(
         contents=contents,
         config=genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
-            temperature=0.7
+            temperature=0.4 if target_lang == "ur" else 0.7
         )
     )
     
     ai_text = response.text or ("میں سمجھ گیا ہوں۔ کیا آپ چاہتے ہیں کہ اس پر مکمل مشورہ کونسل کا اجلاس بلایا جائے؟" if target_lang == "ur" else ("Main samajh gaya hoon. Kya aap chahte hain ke is par full Mashwara Council ka mashwara shuru kiya jaye?" if target_lang == "roman-ur" else "I understand. Would you like to convene the full Mashwara council on this?"))
+
+    # Defensive validation: if Urdu mode produced Arabic, retry once with correction
+    if target_lang == "ur" and is_arabic_response(ai_text):
+        logger.warning(f"Arabic detected in /chat/message output: {ai_text[:80]}... Retrying once in Pakistani Urdu.")
+        retry_contents = contents + [
+            genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=ai_text)]),
+            genai_types.Content(role="user", parts=[genai_types.Part.from_text(
+                text="The previous response was Arabic. Rewrite the same answer exclusively in natural Pakistani Urdu. Preserve the meaning. Do not use Arabic."
+            )])
+        ]
+        retry_resp = client.models.generate_content(
+            model=CHAT_MODEL,
+            contents=retry_contents,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.2
+            )
+        )
+        corrected = retry_resp.text or ""
+        if corrected and not is_arabic_response(corrected):
+            ai_text = corrected
+        else:
+            ai_text = "میں آپ کی بات سمجھ رہا ہوں۔ براہ کرم مجھے بتائیں کہ آپ کا اصل سوال یا فیصلہ کیا ہے تاکہ ہم اس پر تفصیل سے بات کر سکیں یا مکمل مشورہ کونسل تشکیل دے سکیں۔"
     
     # Save assistant message
     asst_msg = ChatMessage(session_id=session.id, role="assistant", content=ai_text)
@@ -651,26 +820,7 @@ async def stream_standard_message(
     session = None
     contents = []
     target_lang, _ = resolve_consultation_language(body.language or request.headers.get("accept-language"), body.message)
-    if target_lang == "ur":
-        system_prompt = (
-            "آپ مشورہ اے آئی (Mashwara AI) کے مشاورتی معاون ہیں۔ "
-            "آپ صارف کے فیصلے یا مسئلے کو بغور سمجھتے ہیں، اگر ضروری ہو تو مختصر اور اہم وضاحتی سوال پوچھتے ہیں، "
-            "ابتدائی مفید مشورہ دیتے ہیں، اور جہاں مختلف ماہرین کے زاویوں کی ضرورت ہو وہاں مکمل مشورہ کونسل شروع کرنے کی تجویز دیتے ہیں۔ "
-            "سلیس اور شستہ اردو میں بات کریں۔"
-        )
-    elif target_lang == "roman-ur":
-        system_prompt = (
-            "Aap Mashwara AI ke Mashwara Assistant hain. "
-            "Aap user ke decision ya confusion ko achi tarah samajhte hain, zaroorat parne par focused sawal poochte hain, "
-            "lightweight practical guidance dete hain, aur jahan multi-agent council ki zaroorat ho wahan full Mashwara start karne ka mashwara dete hain. "
-            "Natural modern Pakistani Roman Urdu mein baat karein."
-        )
-    else:
-        system_prompt = (
-            "You are the Mashwara Assistant on Mashwara AI. "
-            "You help users clarify their decisions, ask decisive questions when necessary, provide concise helpful guidance, "
-            "and recommend convening a full Mashwara expert consultation when multiple specialist perspectives would add value."
-        )
+    system_prompt = build_standard_chat_system_prompt(target_lang)
 
     if current_user is not None:
         if body.session_id:
@@ -722,59 +872,218 @@ async def stream_standard_message(
                     contents.append(genai_types.Content(role=r, parts=[genai_types.Part.from_text(text=content)]))
         contents.append(genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=body.message)]))
 
-    async def event_generator():
-        client = genai.Client()
-        full_text = ""
-        full_thinking = ""
-        try:
-            response_stream = await client.aio.models.generate_content_stream(
-                model=CHAT_MODEL,
-                contents=contents,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=system_prompt,
-                    temperature=0.7
+    if target_lang == "ur":
+        # -------------------------------------------------------------------
+        # Zero Arabic Leakage Pipeline (Urdu):
+        # 1. Accumulate complete response server-side
+        # 2. Check for start_mashwara tool call first (suppress text, emit action)
+        # 3. Validate complete textual answer with is_arabic_response()
+        # 4. If Arabic-heavy, regenerate ONCE using correction prompt
+        # 5. Only then emit approved answer to frontend as smooth chunks
+        # -------------------------------------------------------------------
+        async def event_generator_urdu():
+            client = genai.Client()
+            try:
+                response = await client.aio.models.generate_content(
+                    model=CHAT_MODEL,
+                    contents=contents,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        tools=[START_MASHWARA_TOOL],
+                        temperature=0.4
+                    )
                 )
-            )
-            
-            from agents import AgentStreamParser
-            parser = AgentStreamParser()
-            
-            async for chunk in response_stream:
-                if await request.is_disconnected():
-                    logger.info("Client disconnected, stopping standard stream.")
-                    break
-                if chunk.text:
-                    for is_thinking, parsed_content in parser.process_chunk(chunk.text):
-                        if is_thinking:
-                            full_thinking += parsed_content
-                            yield {"data": json.dumps({"type": "thinking", "text": parsed_content})}
-                        else:
-                            full_text += parsed_content
-                            yield {"data": json.dumps({"type": "chunk", "text": parsed_content})}
-            
-            if parser.buffer and not await request.is_disconnected():
-                if parser.is_thinking:
-                    full_thinking += parser.buffer
-                    yield {"data": json.dumps({"type": "thinking", "text": parser.buffer})}
-                else:
-                    full_text += parser.buffer
-                    yield {"data": json.dumps({"type": "chunk", "text": parser.buffer})}
-            
-        except Exception as e:
-            logger.error(f"Stream error: {e}", exc_info=True)
-            yield {"data": json.dumps({"type": "error", "message": str(e)})}
-        finally:
-            if current_user is not None and session is not None and (full_text or full_thinking):
-                async def save_msg():
-                    async with AsyncSessionLocal() as session_db:
-                        asst_msg = ChatMessage(session_id=session.id, role="assistant", content=full_text, thinking=full_thinking)
-                        session_db.add(asst_msg)
-                        await session_db.commit()
-                import asyncio
-                asyncio.create_task(save_msg())
-            yield {"data": json.dumps({"type": "done"})}
 
-    return EventSourceResponse(event_generator())
+                # Check for start_mashwara tool call
+                action_call = None
+                if response.function_calls:
+                    for fc in response.function_calls:
+                        if fc.name == "start_mashwara":
+                            action_call = fc
+                            break
+                elif response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        if hasattr(part, "function_call") and part.function_call and part.function_call.name == "start_mashwara":
+                            action_call = part.function_call
+                            break
+
+                if action_call:
+                    args = action_call.args or {}
+                    raw_dilemma = str(args.get("decision_prompt", "")).strip()
+                    history_list = history if current_user is not None else (body.history or [])
+                    canonical_dilemma = resolve_canonical_dilemma(raw_dilemma, history_list, body.message)
+                    logger.info(f"Emitting start_mashwara action: {canonical_dilemma}")
+                    yield {"data": json.dumps({
+                        "type": "action",
+                        "action": "start_mashwara",
+                        "decision_prompt": canonical_dilemma
+                    })}
+                    yield {"data": json.dumps({"type": "done"})}
+                    return
+
+                # Normal textual answer
+                full_text = response.text or ""
+
+                # Validate with is_arabic_response()
+                if is_arabic_response(full_text):
+                    logger.warning(f"Detected Arabic in Urdu response: {full_text[:80]}... Regenerating once with Pakistani Urdu contract.")
+                    correction_contents = contents + [
+                        genai_types.Content(role="model", parts=[genai_types.Part.from_text(text=full_text)]),
+                        genai_types.Content(role="user", parts=[genai_types.Part.from_text(
+                            text="The previous response was Arabic. Rewrite the same answer exclusively in natural Pakistani Urdu. Preserve the meaning. Do not use Arabic."
+                        )])
+                    ]
+                    retry_resp = await client.aio.models.generate_content(
+                        model=CHAT_MODEL,
+                        contents=correction_contents,
+                        config=genai_types.GenerateContentConfig(
+                            system_instruction=system_prompt,
+                            temperature=0.2
+                        )
+                    )
+                    corrected = retry_resp.text or ""
+                    if corrected and not is_arabic_response(corrected):
+                        full_text = corrected
+                    else:
+                        full_text = "میں آپ کی بات سمجھ رہا ہوں۔ براہ کرم مجھے بتائیں کہ آپ کا اصل سوال یا فیصلہ کیا ہے تاکہ ہم اس پر تفصیل سے بات کر سکیں یا مکمل مشورہ کونسل تشکیل دے سکیں۔"
+
+                # Parse thinking vs final text
+                from agents import AgentStreamParser
+                parser = AgentStreamParser()
+                thinking_text = ""
+                answer_text = ""
+                for is_thinking, parsed_content in parser.process_chunk(full_text):
+                    if is_thinking:
+                        thinking_text += parsed_content
+                    else:
+                        answer_text += parsed_content
+                if parser.buffer:
+                    if parser.is_thinking:
+                        thinking_text += parser.buffer
+                    else:
+                        answer_text += parser.buffer
+
+                if not answer_text and full_text:
+                    answer_text = full_text
+
+                if thinking_text:
+                    yield {"data": json.dumps({"type": "thinking", "text": thinking_text})}
+
+                # Replay approved answer smoothly to frontend
+                words = answer_text.split(" ")
+                chunk_size = 6
+                for i in range(0, len(words), chunk_size):
+                    if await request.is_disconnected():
+                        break
+                    piece = " ".join(words[i:i + chunk_size])
+                    if i + chunk_size < len(words):
+                        piece += " "
+                    yield {"data": json.dumps({"type": "chunk", "text": piece})}
+                    await asyncio.sleep(0.015)
+
+                if current_user is not None and session is not None and (answer_text or thinking_text):
+                    async def save_msg():
+                        async with AsyncSessionLocal() as session_db:
+                            asst_msg = ChatMessage(session_id=session.id, role="assistant", content=answer_text, thinking=thinking_text)
+                            session_db.add(asst_msg)
+                            await session_db.commit()
+                    asyncio.create_task(save_msg())
+
+            except Exception as e:
+                logger.error(f"Urdu stream error: {e}", exc_info=True)
+                yield {"data": json.dumps({"type": "error", "message": str(e)})}
+            finally:
+                yield {"data": json.dumps({"type": "done"})}
+
+        return EventSourceResponse(event_generator_urdu())
+
+    else:
+        # -------------------------------------------------------------------
+        # Direct Streaming Pipeline (English & Roman Urdu)
+        # -------------------------------------------------------------------
+        async def event_generator_streaming():
+            client = genai.Client()
+            full_text = ""
+            full_thinking = ""
+            action_fired = False
+            try:
+                response_stream = await client.aio.models.generate_content_stream(
+                    model=CHAT_MODEL,
+                    contents=contents,
+                    config=genai_types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        tools=[START_MASHWARA_TOOL],
+                        temperature=0.7
+                    )
+                )
+
+                from agents import AgentStreamParser
+                parser = AgentStreamParser()
+
+                async for chunk in response_stream:
+                    if await request.is_disconnected():
+                        logger.info("Client disconnected, stopping standard stream.")
+                        break
+
+                    # Check for start_mashwara tool call
+                    action_call = None
+                    if chunk.function_calls:
+                        for fc in chunk.function_calls:
+                            if fc.name == "start_mashwara":
+                                action_call = fc
+                                break
+                    elif chunk.candidates and chunk.candidates[0].content and chunk.candidates[0].content.parts:
+                        for part in chunk.candidates[0].content.parts:
+                            if hasattr(part, "function_call") and part.function_call and part.function_call.name == "start_mashwara":
+                                action_call = part.function_call
+                                break
+
+                    if action_call:
+                        args = action_call.args or {}
+                        raw_dilemma = str(args.get("decision_prompt", "")).strip()
+                        history_list = history if current_user is not None else (body.history or [])
+                        canonical_dilemma = resolve_canonical_dilemma(raw_dilemma, history_list, body.message)
+                        logger.info(f"Emitting start_mashwara action: {canonical_dilemma}")
+                        yield {"data": json.dumps({
+                            "type": "action",
+                            "action": "start_mashwara",
+                            "decision_prompt": canonical_dilemma
+                        })}
+                        action_fired = True
+                        break
+
+                    if chunk.text:
+                        for is_thinking, parsed_content in parser.process_chunk(chunk.text):
+                            if is_thinking:
+                                full_thinking += parsed_content
+                                yield {"data": json.dumps({"type": "thinking", "text": parsed_content})}
+                            else:
+                                full_text += parsed_content
+                                yield {"data": json.dumps({"type": "chunk", "text": parsed_content})}
+
+                if not action_fired:
+                    if parser.buffer and not await request.is_disconnected():
+                        if parser.is_thinking:
+                            full_thinking += parser.buffer
+                            yield {"data": json.dumps({"type": "thinking", "text": parser.buffer})}
+                        else:
+                            full_text += parser.buffer
+                            yield {"data": json.dumps({"type": "chunk", "text": parser.buffer})}
+
+            except Exception as e:
+                logger.error(f"Stream error: {e}", exc_info=True)
+                yield {"data": json.dumps({"type": "error", "message": str(e)})}
+            finally:
+                if not action_fired and current_user is not None and session is not None and (full_text or full_thinking):
+                    async def save_msg():
+                        async with AsyncSessionLocal() as session_db:
+                            asst_msg = ChatMessage(session_id=session.id, role="assistant", content=full_text, thinking=full_thinking)
+                            session_db.add(asst_msg)
+                            await session_db.commit()
+                    asyncio.create_task(save_msg())
+                yield {"data": json.dumps({"type": "done"})}
+
+        return EventSourceResponse(event_generator_streaming())
 
 
 
@@ -881,7 +1190,7 @@ async def chat_stream(
                 template_type,
                 {
                     "prompt": final_prompt,
-                    "decision_title": "Mashwara Consultation",
+                    "decision_title": "مشاورتی رپورٹ" if (body.language == "ur" or request.headers.get("accept-language") == "ur") else "Mashwara Consultation",
                     "language": body.language or request.headers.get("accept-language"),
                 },
                 cancel_event=cancel_event
@@ -1000,7 +1309,7 @@ def normalize_consultation_snapshot(
     }
 
     return {
-        "decision_title": decision_title or "Mashwara Consultation",
+        "decision_title": decision_title or ("مشاورتی رپورٹ" if language == "ur" else "Mashwara Consultation"),
         "language": language or "roman-ur",
         "domain": template.replace("_BOARD", "").lower() if template else "general",
         "template": template or "career",
@@ -1055,9 +1364,11 @@ async def create_shared_mashwara(
         s = body.snapshot
         # If client provided normalized experts directly
         if "experts" in s and isinstance(s.get("experts"), list) and "report" in s:
+            target_snap_lang = s.get("language") or body.language or "roman-ur"
+            fallback_title = "مشاورتی رپورٹ" if target_snap_lang == "ur" else "Mashwara Consultation"
             normalized_snapshot = {
-                "decision_title": s.get("decision_title") or body.decision_title or "Mashwara Consultation",
-                "language": s.get("language") or body.language or "roman-ur",
+                "decision_title": s.get("decision_title") or body.decision_title or fallback_title,
+                "language": target_snap_lang,
                 "domain": s.get("domain", "general"),
                 "template": s.get("template", "career"),
                 "experts": [
@@ -1078,9 +1389,11 @@ async def create_shared_mashwara(
                 "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
         elif "roles" in s or "streams" in s:
+            target_snap_lang = s.get("language") or body.language or "roman-ur"
+            fallback_title = "مشاورتی رپورٹ" if target_snap_lang == "ur" else "Mashwara Consultation"
             normalized_snapshot = normalize_consultation_snapshot(
-                decision_title=s.get("decision_title") or body.decision_title or "Mashwara Consultation",
-                language=s.get("language") or body.language or "roman-ur",
+                decision_title=s.get("decision_title") or body.decision_title or fallback_title,
+                language=target_snap_lang,
                 template=s.get("template", "career"),
                 roles=s.get("roles") or s.get("rolesInfo") or [],
                 streams=s.get("streams", {}),
@@ -1103,11 +1416,13 @@ async def create_shared_mashwara(
     if not share_id:
         raise HTTPException(status_code=500, detail="Failed to generate a unique share ID")
 
+    snap_lang = normalized_snapshot.get("language", "roman-ur")
+    snap_fallback_title = "مشاورتی رپورٹ" if snap_lang == "ur" else "Mashwara Consultation"
     shared = SharedMashwara(
         share_id=share_id,
         owner_user_id=current_user.id if current_user else None,
-        language=normalized_snapshot.get("language", "roman-ur"),
-        decision_title=normalized_snapshot.get("decision_title", "Mashwara Consultation")[:500],
+        language=snap_lang,
+        decision_title=(normalized_snapshot.get("decision_title") or snap_fallback_title)[:500],
         snapshot=normalized_snapshot,
         created_at=utc_now_naive(),
     )
@@ -1135,10 +1450,11 @@ async def get_public_shared_mashwara(
     if not record:
         raise HTTPException(status_code=404, detail="Shared Mashwara report not found")
 
+    rec_title = record.decision_title or ("مشاورتی رپورٹ" if record.language == "ur" else "Mashwara Consultation")
     return PublicSharedMashwaraResponse(
         share_id=record.share_id,
         language=record.language,
-        decision_title=record.decision_title or "Mashwara Consultation",
+        decision_title=rec_title,
         snapshot=record.snapshot,
         created_at=record.created_at.isoformat() + "Z" if record.created_at else "",
     )
