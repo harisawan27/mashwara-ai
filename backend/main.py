@@ -918,7 +918,6 @@ async def stream_standard_message(
                         "action": "start_mashwara",
                         "decision_prompt": canonical_dilemma
                     })}
-                    yield {"data": json.dumps({"type": "done"})}
                     return
 
                 # Normal textual answer
