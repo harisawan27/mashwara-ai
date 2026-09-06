@@ -244,7 +244,7 @@ export default function Dashboard() {
             abortControllerRef.current?.abort();
             setIsProcessing(false);
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: t.chat.conveneNotice, is_agentic: true } : m));
-            await startMashwara(canonicalDilemma);
+            await startMashwara(canonicalDilemma, tempAsstId);
           }
         }
       );
@@ -304,7 +304,7 @@ export default function Dashboard() {
             abortControllerRef.current?.abort();
             setIsProcessing(false);
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: t.chat.conveneNotice, is_agentic: true } : m));
-            await startMashwara(canonicalDilemma);
+            await startMashwara(canonicalDilemma, tempAsstId);
           }
         }
       );
@@ -314,7 +314,7 @@ export default function Dashboard() {
     }
   };
 
-  const startMashwara = async (dilemmaText: string) => {
+  const startMashwara = async (dilemmaText: string, existingAsstMsgId?: string) => {
     const userText = dilemmaText.trim();
     if (!userText || isStartingMashwaraRef.current) return;
 
@@ -341,12 +341,16 @@ export default function Dashboard() {
         }
       }
 
-      const tempUserId = Date.now().toString();
-      const tempAsstId = (Date.now() + 1).toString();
-      setMessages(prev => [...prev, 
-        { id: tempUserId, role: "user", content: userText },
-        { id: tempAsstId, role: "assistant", content: t.chat.conveneNotice, is_agentic: true }
-      ]);
+      let targetAsstId = existingAsstMsgId;
+      if (!targetAsstId) {
+        const tempUserId = Date.now().toString();
+        const tempAsstId = (Date.now() + 1).toString();
+        targetAsstId = tempAsstId;
+        setMessages(prev => [...prev, 
+          { id: tempUserId, role: "user", content: userText },
+          { id: tempAsstId, role: "assistant", content: t.chat.conveneNotice, is_agentic: true }
+        ]);
+      }
 
       const newMeetingData: ActiveMeetingData = {
         template: selectedTemplate,
@@ -457,6 +461,12 @@ export default function Dashboard() {
             };
             return { ...prev, streams: updatedStreams };
           });
+        },
+        // onChatSummary: replace convening notice in chat with rich companion summary
+        (summaryText) => {
+          if (targetAsstId && summaryText) {
+            setMessages(prev => prev.map(m => m.id === targetAsstId ? { ...m, content: summaryText, is_agentic: true } : m));
+          }
         }
       );
 

@@ -57,7 +57,8 @@ export async function streamChat(
   onError: (error: string) => void,
   onComplete: () => void,
   abortSignal?: AbortSignal,
-  onFinal?: (agent: string, text: string, thinking: string) => void
+  onFinal?: (agent: string, text: string, thinking: string) => void,
+  onChatSummary?: (summaryText: string) => void
 ) {
   try {
     const token = localStorage.getItem("token");
@@ -116,6 +117,9 @@ export async function streamChat(
                 break;
               case "report":
                 onReport(data.data);
+                break;
+              case "chat_summary":
+                if (onChatSummary) onChatSummary(data.text);
                 break;
               case "error":
                 onError(data.message);

@@ -639,6 +639,11 @@ Specialist Analyses (Round 1):
         "confidence_score": conf_score,
         "board_votes": final_votes,
         "debate_summary": parsed_report.get("debate_summary", mod_full_text),
+        "final_mashwara": parsed_report.get("final_mashwara", ""),
+        "agreement": parsed_report.get("agreement", ""),
+        "disagreement": parsed_report.get("disagreement", ""),
+        "assumptions": parsed_report.get("assumptions", []),
+        "what_would_change": parsed_report.get("what_would_change", ""),
         "key_risks": parsed_report.get("key_risks", ["Evaluate unexpected cash flow or workload friction."]),
         "recommended_actions": parsed_report.get("recommended_actions", ["Proceed with a 30-day testing milestone."]),
     }

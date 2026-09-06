@@ -44,7 +44,7 @@ from templates.board_templates import (
     TEMPLATE_METADATA,
 )
 from agents import run_meeting
-from agents.board_config import CHAT_MODEL
+from agents.board_config import CHAT_MODEL, CHAT_TOKENS
 from agents.language_intelligence import resolve_consultation_language
 from database import get_db, AsyncSessionLocal
 from models.user import User
@@ -717,6 +717,126 @@ def build_standard_chat_system_prompt(target_lang: str) -> str:
         )
 
 
+def build_consultation_chat_summary(report: Dict[str, Any], language: Optional[str]) -> str:
+    """
+    Builds an intelligent, deterministic companion executive summary of the completed
+    consultation for display in the standard chat conversation.
+    Constructed exclusively from authoritative report fields with ZERO extra LLM calls.
+    """
+    if not report:
+        return ""
+
+    lang = (language or "ur").lower()
+    if "roman" in lang or ("ur" in lang and "roman" in lang):
+        lang = "roman-ur"
+    elif "ur" in lang:
+        lang = "ur"
+    elif "en" in lang:
+        lang = "en"
+    else:
+        lang = "ur"
+
+    decision = str(report.get("final_decision", "DEFER")).upper()
+    conf = report.get("confidence_score", 70)
+    try:
+        conf_int = int(conf)
+    except (ValueError, TypeError):
+        conf_int = 70
+
+    final_mashwara = str(report.get("final_mashwara", "")).strip()
+    debate_summary = str(report.get("debate_summary", "")).strip()
+    agreement = str(report.get("agreement", "")).strip()
+    disagreement = str(report.get("disagreement", "")).strip()
+    
+    raw_risks = report.get("key_risks") or []
+    risks = [str(r).strip() for r in raw_risks if str(r).strip()][:2]
+    
+    raw_actions = report.get("recommended_actions") or []
+    actions = [str(a).strip() for a in raw_actions if str(a).strip()][:3]
+
+    # Helper to extract an opening summary snippet from debate_summary if final_mashwara is empty
+    summary_snippet = final_mashwara
+    if not summary_snippet and debate_summary:
+        clean_lines = [line.strip() for line in debate_summary.split("\n") if line.strip() and not line.strip().startswith("#") and not line.strip().startswith("```")]
+        if clean_lines:
+            summary_snippet = clean_lines[0]
+            if len(summary_snippet) < 60 and len(clean_lines) > 1:
+                summary_snippet += " " + clean_lines[1]
+
+    parts = []
+
+    if lang == "ur":
+        verdict_label = "تائید (APPROVE)" if "APPROV" in decision else ("مخالفت (REJECT)" if "REJECT" in decision else "احتیاط / التواء (DEFER)")
+        parts.append("مشورہ مکمل ہو گیا۔ 6 ماہرین نے آپ کے فیصلے کا مختلف زاویوں سے جائزہ لیا ہے۔\n")
+        parts.append(f"**حتمی مشورہ: {verdict_label}** (اعتماد: {conf_int}%)\n")
+        
+        if summary_snippet:
+            parts.append(f"**خلاصہ:**\n{summary_snippet}\n")
+            
+        if agreement:
+            parts.append(f"**اتفاقِ رائے:** {agreement}\n")
+        if disagreement:
+            parts.append(f"**بنیادی اختلاف:** {disagreement}\n")
+            
+        if risks:
+            risks_text = "\n".join([f"- {r}" for r in risks])
+            parts.append(f"**اہم خطرات:**\n{risks_text}\n")
+            
+        if actions:
+            actions_text = "\n".join([f"{i+1}. {a}" for i, a in enumerate(actions)])
+            parts.append(f"**اگلے عملی اقدامات:**\n{actions_text}\n")
+            
+        parts.append("مکمل تجزیہ، ہر ماہر کی رائے اور تفصیلی بحث دیکھنے کے لیے مشورے کی رپورٹ کھولیں۔")
+
+    elif lang == "roman-ur":
+        verdict_label = "Support (APPROVE)" if "APPROV" in decision else ("Oppose (REJECT)" if "REJECT" in decision else "Caution / Defer (DEFER)")
+        parts.append("Mashwara mukammal ho gaya. 6 experts ne aap ke decision ka mukhtalif zawiyon se jaiza liya hai.\n")
+        parts.append(f"**Final Mashwara: {verdict_label}** (Confidence: {conf_int}%)\n")
+        
+        if summary_snippet:
+            parts.append(f"**Khulasa:**\n{summary_snippet}\n")
+            
+        if agreement:
+            parts.append(f"**Ittefaq-e-Raye:** {agreement}\n")
+        if disagreement:
+            parts.append(f"**Bunyadi Ikhtilaf:** {disagreement}\n")
+            
+        if risks:
+            risks_text = "\n".join([f"- {r}" for r in risks])
+            parts.append(f"**Aham Khatray:**\n{risks_text}\n")
+            
+        if actions:
+            actions_text = "\n".join([f"{i+1}. {a}" for i, a in enumerate(actions)])
+            parts.append(f"**Aglay Qadam:**\n{actions_text}\n")
+            
+        parts.append("Mukammal tajziya, har expert ki raye aur debate dekhne ke liye Mashwara Report open karein.")
+
+    else:
+        verdict_label = "APPROVE" if "APPROV" in decision else ("REJECT" if "REJECT" in decision else "DEFER")
+        parts.append("Consultation complete. All 6 expert advisors have evaluated your decision from multiple angles.\n")
+        parts.append(f"**Final Recommendation: {verdict_label}** (Confidence: {conf_int}%)\n")
+        
+        if summary_snippet:
+            parts.append(f"**Executive Summary:**\n{summary_snippet}\n")
+            
+        if agreement:
+            parts.append(f"**Consensus:** {agreement}\n")
+        if disagreement:
+            parts.append(f"**Key Disagreement:** {disagreement}\n")
+            
+        if risks:
+            risks_text = "\n".join([f"- {r}" for r in risks])
+            parts.append(f"**Key Risks:**\n{risks_text}\n")
+            
+        if actions:
+            actions_text = "\n".join([f"{i+1}. {a}" for i, a in enumerate(actions)])
+            parts.append(f"**Recommended Next Steps:**\n{actions_text}\n")
+            
+        parts.append("Open the full Mashwara Report to review individual expert votes, rebuttals, and comprehensive analysis.")
+
+    return "\n".join(parts)
+
+
 @app.post("/chat/message", response_model=ChatMessageResponse, tags=["Chat"])
 async def send_standard_message(
     body: StandardMessageRequest, 
@@ -767,7 +887,8 @@ async def send_standard_message(
         contents=contents,
         config=genai_types.GenerateContentConfig(
             system_instruction=system_prompt,
-            temperature=0.4 if target_lang == "ur" else 0.7
+            temperature=0.4 if target_lang == "ur" else 0.7,
+            max_output_tokens=CHAT_TOKENS,
         )
     )
     
@@ -787,7 +908,8 @@ async def send_standard_message(
             contents=retry_contents,
             config=genai_types.GenerateContentConfig(
                 system_instruction=system_prompt,
-                temperature=0.2
+                temperature=0.2,
+                max_output_tokens=CHAT_TOKENS,
             )
         )
         corrected = retry_resp.text or ""
@@ -890,7 +1012,8 @@ async def stream_standard_message(
                     config=genai_types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         tools=[START_MASHWARA_TOOL],
-                        temperature=0.4
+                        temperature=0.4,
+                        max_output_tokens=CHAT_TOKENS,
                     )
                 )
 
@@ -937,7 +1060,8 @@ async def stream_standard_message(
                         contents=correction_contents,
                         config=genai_types.GenerateContentConfig(
                             system_instruction=system_prompt,
-                            temperature=0.2
+                            temperature=0.2,
+                            max_output_tokens=CHAT_TOKENS,
                         )
                     )
                     corrected = retry_resp.text or ""
@@ -1012,7 +1136,8 @@ async def stream_standard_message(
                     config=genai_types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         tools=[START_MASHWARA_TOOL],
-                        temperature=0.7
+                        temperature=0.7,
+                        max_output_tokens=CHAT_TOKENS,
                     )
                 )
 
@@ -1134,29 +1259,23 @@ async def chat_stream(
                 user_msg = ChatMessage(session_id=session.id, role="user", content=body.prompt)
                 db.add(user_msg)
                 
-                template_name_formatted = template_type.value.replace("_", " ").title()
+                target_lang, _ = resolve_consultation_language(body.language or request.headers.get("accept-language"), body.prompt)
+                if target_lang == "ur":
+                    convening_text = "مشورہ کونسل کا اجلاس طلب کر لیا گیا ہے۔ تمام 6 ماہرین آپ کے فیصلے پر غور کر رہے ہیں..."
+                elif target_lang == "roman-ur":
+                    convening_text = "Mashwara Council convene ho rahi hai. 6 experts aap ke decision par ghour kar rahe hain..."
+                else:
+                    convening_text = "The Mashwara Council is convening. All 6 expert advisors are analyzing your decision..."
+
                 asst_msg = ChatMessage(
                     session_id=session.id, 
                     role="assistant", 
-                    content=f"Mashwara Council is convening to analyze this decision.", 
+                    content=convening_text, 
                     is_agentic=True,
                     meeting_id=meeting_id
                 )
                 db.add(asst_msg)
                 await db.commit()
-                
-                client = genai.Client()
-                try:
-                    summary_prompt = f"Write a professional, 1 paragraph consultation confirmation in {body.language or 'Urdu'} confirming that the Mashwara Council is convening to analyze the following decision. Be concise, engaging and supportive.\n\nDecision:\n{body.prompt}"
-                    response = client.models.generate_content(
-                        model=CHAT_MODEL,
-                        contents=summary_prompt,
-                    )
-                    if response.text:
-                        asst_msg.content = response.text
-                        await db.commit()
-                except Exception as e:
-                    logger.error(f"Failed to generate summary: {e}")
 
                 hist_result = await db.execute(
                     select(ChatMessage)
@@ -1203,6 +1322,9 @@ async def chat_stream(
                     data = json.loads(chunk)
                     if data.get("type") == "report":
                         final_report_data = data.get("data")
+                        summary_text = build_consultation_chat_summary(final_report_data, body.language or request.headers.get("accept-language"))
+                        if summary_text:
+                            yield {"data": json.dumps({"type": "chat_summary", "text": summary_text})}
                     elif data.get("type") == "roles":
                         streams_accumulator["_roles"] = data.get("data")
                     elif data.get("type") == "final":
@@ -1231,7 +1353,7 @@ async def chat_stream(
         finally:
             # Save to DB only if authenticated user
             if current_user is not None and (final_report_data or len(streams_accumulator) > 1):
-                async def save_meeting():
+                try:
                     async with AsyncSessionLocal() as session_db:
                         result = await session_db.execute(select(Meeting).filter(Meeting.id == meeting_id))
                         db_meeting = result.scalars().first()
@@ -1240,8 +1362,22 @@ async def chat_stream(
                                 db_meeting.report_data = final_report_data
                             db_meeting.streams_data = streams_accumulator
                             await session_db.commit()
-                import asyncio
-                asyncio.create_task(save_meeting())
+
+                        if final_report_data and body.session_id:
+                            asst_msg_res = await session_db.execute(
+                                select(ChatMessage).filter(
+                                    ChatMessage.session_id == body.session_id,
+                                    ChatMessage.meeting_id == meeting_id
+                                )
+                            )
+                            asst_msg_obj = asst_msg_res.scalars().first()
+                            if asst_msg_obj:
+                                summary_text = build_consultation_chat_summary(final_report_data, body.language or request.headers.get("accept-language"))
+                                if summary_text:
+                                    asst_msg_obj.content = summary_text
+                                    await session_db.commit()
+                except Exception as save_err:
+                    logger.error(f"Failed to save meeting {meeting_id}: {save_err}")
             logger.info(f"Board stream event_generator finished for meeting {meeting_id}.")
 
     return EventSourceResponse(event_generator())

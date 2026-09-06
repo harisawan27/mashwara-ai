@@ -9,7 +9,66 @@ from main import (
     build_standard_chat_system_prompt,
     resolve_canonical_dilemma,
     START_MASHWARA_TOOL,
+    build_consultation_chat_summary,
+    CHAT_TOKENS,
 )
+from agents.board_config import (
+    SPECIALIST_TOKENS,
+    REBUTTAL_TOKENS,
+    LEAD_ADVISOR_TOKENS,
+)
+
+def test_token_budgets():
+    assert SPECIALIST_TOKENS == 1536, f"Expected 1536, got {SPECIALIST_TOKENS}"
+    assert REBUTTAL_TOKENS == 1024, f"Expected 1024, got {REBUTTAL_TOKENS}"
+    assert LEAD_ADVISOR_TOKENS == 3072, f"Expected 3072, got {LEAD_ADVISOR_TOKENS}"
+    assert CHAT_TOKENS == 2048, f"Expected 2048, got {CHAT_TOKENS}"
+    print("[PASS] Token budgets verification passed.")
+
+def test_consultation_chat_summary():
+    mock_report = {
+        "decision": "APPROVED",
+        "final_decision": "APPROVE WITH CAUTION",
+        "confidence_score": 85,
+        "debate_summary": "All specialists agreed the expansion has high potential but cautioned on cashflow.",
+        "agreement": "High market demand in tier-2 cities.",
+        "disagreement": "Whether to hire full-time or use contractors initially.",
+        "key_risks": [
+            "Cash flow deficit during the first 3 months",
+            "Supplier delays in inventory delivery"
+        ],
+        "recommended_actions": [
+            "Secure a 3-month credit line with bank",
+            "Start with 2 contract sales leads before hiring full-time"
+        ]
+    }
+
+    # 1. Test Urdu summary
+    ur_summary = build_consultation_chat_summary(mock_report, "ur")
+    assert "مشورہ مکمل ہو گیا" in ur_summary
+    assert "حتمی مشورہ" in ur_summary
+    assert "85%" in ur_summary
+    assert "اہم خطرات:" in ur_summary
+    assert "اگلے عملی اقدامات:" in ur_summary
+    assert "مشورے کی رپورٹ" in ur_summary
+
+    # 2. Test Roman Urdu summary
+    roman_summary = build_consultation_chat_summary(mock_report, "roman-ur")
+    assert "Mashwara mukammal ho gaya" in roman_summary
+    assert "Final Mashwara" in roman_summary
+    assert "85%" in roman_summary
+    assert "Aham Khatray:" in roman_summary
+    assert "Aglay Qadam:" in roman_summary
+
+    # 3. Test English summary
+    en_summary = build_consultation_chat_summary(mock_report, "en")
+    assert "Consultation complete" in en_summary
+    assert "Final Recommendation" in en_summary
+    assert "85%" in en_summary
+    assert "Key Risks:" in en_summary
+    assert "Recommended Next Steps:" in en_summary
+
+    print("[PASS] Consultation companion chat summary tests passed.")
 
 def test_anti_arabic_detection():
     # 1. High confidence Arabic phrases
@@ -73,8 +132,10 @@ def test_tool_declaration():
     print("[PASS] Tool declaration verification passed.")
 
 if __name__ == "__main__":
+    test_token_budgets()
+    test_consultation_chat_summary()
     test_anti_arabic_detection()
     test_canonical_dilemma_resolution()
     test_system_prompt()
     test_tool_declaration()
-    print("\nALL BACKEND LOCK POLISH TESTS PASSED SUCCESSFULLY!")
+    print("\nALL BACKEND LOCK POLISH & CONTENT DEPTH TESTS PASSED SUCCESSFULLY!")

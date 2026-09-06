@@ -22,10 +22,11 @@ SEARCH_MODEL = "gemini-3.1-flash-lite"
 FAST_SPECIALIST_MODEL = SPECIALIST_MODEL
 SPECIALIST_FALLBACK_MODEL = "gemini-3.5-flash-lite"
 
-# Token limits
-SPECIALIST_TOKENS = 768
-REBUTTAL_TOKENS = 512
-LEAD_ADVISOR_TOKENS = 2048
+# Token limits (maximum ceilings, not target lengths)
+SPECIALIST_TOKENS = 1536
+REBUTTAL_TOKENS = 1024
+LEAD_ADVISOR_TOKENS = 3072
+CHAT_TOKENS = 2048
 
 
 # ---------------------------------------------------------------------------
@@ -583,10 +584,16 @@ def get_specialist_prompt(role_key: str, lang: str) -> str:
 {PAKISTANI_CONTEXT_PROMPT}
 {lang_inst}
 
+DEPTH & SUBSTANCE GUIDELINES:
+- Directly address the user's actual dilemma with a substantive professional assessment through your specific lens.
+- Use concrete facts, numbers, and constraints provided by the user.
+- Explain your reasoning thoroughly: identify important tradeoffs, uncover key assumptions, and highlight the single strongest risk or opportunity from your angle.
+- Provide actionable, practical advice.
+- Target depth: roughly 3-5 substantive short paragraphs OR equivalent structured sections/bullets. Avoid shallow 2-paragraph summaries, and do NOT write bloated 1,500-word essays or add filler.
+
 RULES:
-1. Do NOT write long essays. Keep your rationale to 2-4 tight, actionable points.
-2. Formulate your reasoning DIRECTLY in the target language.
-3. You MUST end your response with a structured JSON block in this exact schema:
+1. Formulate your reasoning DIRECTLY in the target language.
+2. You MUST end your response with a structured JSON block in this exact schema:
 
 ```json
 {{
@@ -621,16 +628,17 @@ Below is the summary of key positions and disagreements from your fellow special
 
 YOUR TASK:
 1. Review where your colleagues disagree with your lens.
-2. Identify the single strongest point made by a colleague that challenges your view.
-3. State whether your perspective changed, held firm, or softened.
-4. Give your FINAL revised position and confidence.
+2. Identify exactly what you disagree with and explain why with substantive reasoning.
+3. Respond to the opposing expert's strongest point.
+4. Explicitly state whether your perspective changed, held firm, or softened.
+5. Give your FINAL revised position and confidence.
 
-Keep your response short and decisive (under 120 words). You MUST end with this JSON block:
+Aim for rigorous, useful debate rather than repetition (roughly 2-3 substantive short paragraphs). You MUST end with this JSON block:
 
 ```json
 {{
   "challenge_to": "Role name you most disagree with or are addressing",
-  "rebuttal": "Short, sharp counterpoint or clarification",
+  "rebuttal": "Sharp counterpoint or clarification explaining why you disagree",
   "changed_mind_on": "What point changed or refined your thinking, if any",
   "final_position": "support | oppose | uncertain",
   "final_confidence": 0-100
@@ -695,13 +703,21 @@ Specialist Votes:
 {lang_inst}
 {headings_guide}
 
+SYNTHESIS GUIDELINES:
+- Provide a rich, thorough synthesis across all mandatory sections. Do not merely copy specialist text; extract genuine consensus and articulate specific disagreements.
+- Structure both the structured JSON fields and the comprehensive markdown debate summary cleanly.
+
 OUTPUT FORMAT:
 You MUST output ONLY valid JSON matching this schema:
 ```json
 {{
   "final_decision": "APPROVE | REJECT | DEFER",
   "confidence_score": 0-100,
-  "debate_summary": "Comprehensive markdown text containing all the required headings and analysis in the target language",
+  "final_mashwara": "Core recommendation summary in 1-2 concise sentences",
+  "agreement": "Where the specialists found clear common ground",
+  "disagreement": "Where the specialists diverged or contested assumptions",
+  "what_would_change": "Circumstances or conditions that would flip this verdict",
+  "debate_summary": "Comprehensive markdown text containing all the required headings and rich analysis in the target language",
   "key_risks": [
     "Risk 1",
     "Risk 2",
