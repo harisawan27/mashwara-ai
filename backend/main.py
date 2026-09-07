@@ -564,11 +564,11 @@ async def delete_account(current_user: User = Depends(get_current_user), db: Asy
     )
     for ctx in ac_result.scalars().all():
         for att in ctx.attachments:
-            if att.gcs_path:
+            if att.storage_key:
                 try:
-                    delete_blob(att.gcs_path)
+                    delete_blob(att.storage_key)
                 except Exception as e:
-                    logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+                    logger.warning(f"Error deleting blob {att.storage_key}: {e}")
         if ctx.gemini_store_name:
             try:
                 delete_gemini_store(ctx.gemini_store_name)
@@ -696,11 +696,11 @@ async def delete_session(
     )
     for ctx in ac_result.scalars().all():
         for att in ctx.attachments:
-            if att.gcs_path:
+            if att.storage_key:
                 try:
-                    delete_blob(att.gcs_path)
+                    delete_blob(att.storage_key)
                 except Exception as e:
-                    logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+                    logger.warning(f"Error deleting blob {att.storage_key}: {e}")
         if ctx.gemini_store_name:
             try:
                 delete_gemini_store(ctx.gemini_store_name)
@@ -868,12 +868,11 @@ async def presign_attachment(
 
     new_att = Attachment(
         id=attachment_id,
-        context_id=context.id,
-        user_id=current_user.id if current_user else None,
-        filename=clean_filename,
-        content_type=clean_mime,
+        attachment_context_id=context.id,
+        display_filename=clean_filename,
+        mime_type=clean_mime,
         size_bytes=body.size_bytes,
-        gcs_path=gcs_path,
+        storage_key=gcs_path,
         status="pending",
     )
     db.add(new_att)
@@ -912,13 +911,13 @@ async def complete_attachment(
         return CompleteAttachmentResponse(
             id=att.id,
             context_id=context.id,
-            filename=att.filename,
+            filename=att.display_filename,
             status="ready",
             size_bytes=att.size_bytes,
-            content_type=att.content_type,
+            content_type=att.mime_type,
         )
 
-    exists, actual_size, actual_content_type = verify_uploaded_object(att.gcs_path)
+    exists, actual_size, actual_content_type = verify_uploaded_object(att.storage_key)
     if not exists:
         raise HTTPException(status_code=400, detail="File was not uploaded to storage")
 
@@ -940,10 +939,10 @@ async def complete_attachment(
     return CompleteAttachmentResponse(
         id=att.id,
         context_id=context.id,
-        filename=att.filename,
+        filename=att.display_filename,
         status="ready",
         size_bytes=att.size_bytes,
-        content_type=att.content_type,
+        content_type=att.mime_type,
     )
 
 @app.delete("/attachments/{attachment_id}", tags=["Attachments"])
@@ -970,9 +969,9 @@ async def delete_attachment_endpoint(
         raise HTTPException(status_code=400, detail="Cannot remove attachment from sealed context")
 
     try:
-        delete_blob(att.gcs_path)
+        delete_blob(att.storage_key)
     except Exception as e:
-        logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+        logger.warning(f"Error deleting blob {att.storage_key}: {e}")
 
     await db.delete(att)
     await db.commit()
