@@ -13,6 +13,7 @@ Automated verification for Phase 4:
 import os
 import sys
 import asyncio
+import tempfile
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,17 +32,21 @@ from tools.storage import (
     ALLOWED_AUDIO_MIMES,
 )
 from agents.transcription import (
+    AudioDecodeError,
     NoSpeechDetectedError,
     build_transcription_prompt,
     has_significant_urdu_script,
     transliterate_urdu_to_roman_urdu,
     CUSTOM_DOMAIN_VOCABULARY,
+    normalize_audio_for_transcription,
     transcribe_voice_note,
+    transcribe_voice_note_from_bytes,
 )
 from main import (
     presign_audio,
     upload_audio_endpoint,
     transcribe_audio_endpoint,
+    transcribe_audio_direct,
     delete_audio_endpoint,
     AudioPresignRequest,
     AudioTranscribeRequest,
@@ -130,6 +135,48 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         self.assertEqual(get_audio_extension_for_mime("audio/wav"), ".wav")
         self.assertEqual(get_audio_extension_for_mime("audio/ogg"), ".ogg")
         self.assertEqual(get_audio_extension_for_mime("audio/mpeg"), ".mp3")
+
+    def test_wav_normalization_bypasses_ffmpeg(self):
+        with tempfile.NamedTemporaryFile(suffix=".wav") as source:
+            path, mime_type, cleanup_path = normalize_audio_for_transcription(
+                source.name,
+                "audio/wav",
+            )
+        self.assertEqual(path, source.name)
+        self.assertEqual(mime_type, "audio/wav")
+        self.assertIsNone(cleanup_path)
+
+    @patch("agents.transcription.subprocess.run")
+    @patch("agents.transcription.shutil.which", return_value="/usr/bin/ffmpeg")
+    def test_chrome_webm_is_converted_to_pcm_wav(self, _mock_which, mock_run):
+        def create_output(command, **_kwargs):
+            output_path = command[-1]
+            with open(output_path, "wb") as output_file:
+                output_file.write(b"RIFF" + (b"\x00" * 80))
+            completed = MagicMock()
+            completed.returncode = 0
+            completed.stderr = b""
+            return completed
+
+        mock_run.side_effect = create_output
+        with tempfile.NamedTemporaryFile(suffix=".webm") as source:
+            source.write(b"browser-webm-opus")
+            source.flush()
+            converted_path, mime_type, cleanup_path = normalize_audio_for_transcription(
+                source.name,
+                "audio/webm;codecs=opus",
+            )
+            try:
+                self.assertEqual(mime_type, "audio/wav")
+                self.assertEqual(converted_path, cleanup_path)
+                self.assertGreater(os.path.getsize(converted_path), 44)
+                command = mock_run.call_args.args[0]
+                self.assertIn("-ac", command)
+                self.assertIn("16000", command)
+                self.assertEqual(command[-1], converted_path)
+            finally:
+                if cleanup_path and os.path.exists(cleanup_path):
+                    os.unlink(cleanup_path)
 
     def test_storage_key_isolation(self):
         # Authenticated user
@@ -303,6 +350,38 @@ class TestPhase4VoiceSTT(unittest.TestCase):
             "audio-temp/guest/g1/a3/recording.webm"
         )
 
+    @patch("agents.transcription.normalize_audio_for_transcription")
+    @patch("agents.transcription.genai.Client")
+    def test_direct_stt_uploads_normalized_wav(self, mock_genai_client_class, mock_normalize):
+        mock_normalize.side_effect = lambda path, _mime: (path, "audio/wav", None)
+        mock_genai = MagicMock()
+        mock_genai_client_class.return_value = mock_genai
+        mock_file_ref = MagicMock()
+        mock_file_ref.name = "files/direct-wav"
+        mock_file_ref.uri = "https://generativelanguage.googleapis.com/v1beta/files/direct-wav"
+        mock_genai.files.upload.return_value = mock_file_ref
+        mock_genai.interactions.create.return_value = MagicMock(
+            output_text="Chrome recording transcript works."
+        )
+
+        result = transcribe_voice_note_from_bytes(
+            b"browser-webm-opus",
+            "audio/webm;codecs=opus",
+            "en",
+        )
+
+        self.assertEqual(result["transcript"], "Chrome recording transcript works.")
+        _, upload_kwargs = mock_genai.files.upload.call_args
+        self.assertEqual(upload_kwargs["config"].mime_type, "audio/wav")
+        mock_genai.interactions.create.assert_called_once_with(
+            model="gemini-3.5-transcribe",
+            input=[{
+                "type": "audio",
+                "uri": mock_file_ref.uri,
+                "mime_type": "audio/wav",
+            }],
+        )
+
     # ---------------------------------------------------------------------------
     # 5. FastAPI Endpoint Handlers (/audio/presign, /audio/{audio_id}/transcribe, DELETE)
     # ---------------------------------------------------------------------------
@@ -464,6 +543,29 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         ))
         self.assertEqual(res.transcript, "Mujhe freelancing shuru karni chahiye ya job karni chahiye?")
         self.assertFalse(res.transliterated)
+
+    @patch("main.transcribe_voice_note_from_bytes")
+    def test_direct_transcribe_endpoint_success(self, mock_transcribe):
+        audio_bytes = b"chrome-webm-opus"
+        mock_transcribe.return_value = {
+            "transcript": "Meri voice note ab transcribe ho rahi hai.",
+            "transliterated": False,
+        }
+        req = self.make_mock_request({
+            "content-type": "audio/webm;codecs=opus",
+            "content-length": str(len(audio_bytes)),
+        })
+        req.body = AsyncMock(return_value=audio_bytes)
+        req.query_params = {"language_hint": "roman-ur"}
+
+        result = asyncio.run(transcribe_audio_direct(request=req, current_user=None))
+
+        self.assertEqual(result.transcript, "Meri voice note ab transcribe ho rahi hai.")
+        mock_transcribe.assert_called_once_with(
+            audio_bytes=audio_bytes,
+            content_type="audio/webm",
+            language="roman-ur",
+        )
 
     @patch("main.delete_prefix")
     def test_delete_audio_endpoint(self, mock_delete_prefix):

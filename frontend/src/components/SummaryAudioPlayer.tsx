@@ -14,7 +14,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
-import { getSummaryAudio } from "../api/client";
+import { getSummaryAudioBlob } from "../api/client";
 import { useTranslation } from "../i18n";
 
 interface SummaryAudioPlayerProps {
@@ -37,6 +37,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   const [error, setError] = useState<string | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
 
   // Stop handler for global singleton coordination
   const handleExternalStop = useCallback(() => {
@@ -57,6 +58,10 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
         activeGlobalAudio = null;
         activeGlobalStopCallback = null;
       }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+        objectUrlRef.current = null;
+      }
     };
   }, []);
 
@@ -66,28 +71,33 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
     setError(null);
 
     try {
-      const response = await getSummaryAudio(meetingId);
-      if (response && response.audio_url) {
-        setAudioUrl(response.audio_url);
-        // Autoplay once fetched
-        setTimeout(() => {
-          if (audioRef.current) {
-            if (activeGlobalStopCallback && activeGlobalAudio !== audioRef.current) {
-              activeGlobalStopCallback();
-            }
-            activeGlobalAudio = audioRef.current;
-            activeGlobalStopCallback = handleExternalStop;
-            audioRef.current.play().then(() => {
-              setIsPlaying(true);
-            }).catch((err) => {
-              console.warn("Autoplay prevented:", err);
-              setIsPlaying(false);
-            });
-          }
-        }, 50);
-      } else {
-        setError(t.summaryAudio?.error || "Audio narration unavailable");
+      const audioBlob = await getSummaryAudioBlob(meetingId);
+      if (!audioBlob.size) {
+        throw new Error("Empty narration response");
       }
+      if (objectUrlRef.current) {
+        URL.revokeObjectURL(objectUrlRef.current);
+      }
+      const blobUrl = URL.createObjectURL(audioBlob);
+      objectUrlRef.current = blobUrl;
+
+      setAudioUrl(blobUrl);
+      // Autoplay once fetched
+      setTimeout(() => {
+        if (audioRef.current) {
+          if (activeGlobalStopCallback && activeGlobalAudio !== audioRef.current) {
+            activeGlobalStopCallback();
+          }
+          activeGlobalAudio = audioRef.current;
+          activeGlobalStopCallback = handleExternalStop;
+          audioRef.current.play().then(() => {
+            setIsPlaying(true);
+          }).catch((err) => {
+            console.warn("Autoplay prevented:", err);
+            setIsPlaying(false);
+          });
+        }
+      }, 50);
     } catch (err: any) {
       console.error("Failed to load summary audio:", err);
       setError(t.summaryAudio?.error || "Audio narration unavailable");

@@ -23,7 +23,7 @@ load_dotenv()
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 try:
     import email_validator
@@ -85,8 +85,10 @@ from agents.tts import (
     TTS_VOICE,
 )
 from agents.transcription import (
+    AudioDecodeError,
     NoSpeechDetectedError,
     transcribe_voice_note,
+    transcribe_voice_note_from_bytes,
 )
 from agents.evidence_extractor import (
     ingest_attachment_to_store,
@@ -1316,6 +1318,58 @@ async def transcribe_audio_endpoint(
         raise HTTPException(status_code=502, detail="Speech transcription is temporarily unavailable.")
 
 
+
+@app.post("/audio/transcribe-direct", response_model=AudioTranscribeResponse, tags=["Audio"])
+@limiter.limit("15/minute")
+async def transcribe_audio_direct(
+    request: Request,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    """
+    GCS-free direct transcription: accepts raw audio bytes in the request body
+    and returns a transcript without any Google Cloud Storage dependency.
+    Content-Type must be a supported audio MIME type.
+    """
+    content_type = request.headers.get("content-type", "audio/webm").split(";", 1)[0].strip().lower()
+    if content_type not in ALLOWED_AUDIO_MIMES:
+        raise HTTPException(status_code=400, detail=f"Unsupported audio type: {content_type}")
+
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_VOICE_AUDIO_SIZE_BYTES:
+                raise HTTPException(status_code=413, detail="Audio recording exceeds the 25 MB limit.")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid audio content length.")
+
+    audio_bytes = await request.body()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="No audio bytes received.")
+    if len(audio_bytes) > MAX_VOICE_AUDIO_SIZE_BYTES:
+        raise HTTPException(status_code=413, detail="Audio recording exceeds the 25 MB limit.")
+
+    # Language hint from query param or Accept-Language header
+    language_hint = request.query_params.get("language_hint", "roman-ur")
+
+    try:
+        result = transcribe_voice_note_from_bytes(
+            audio_bytes=audio_bytes,
+            content_type=content_type,
+            language=language_hint,
+        )
+        return AudioTranscribeResponse(
+            transcript=result.get("transcript", ""),
+            transliterated=result.get("transliterated", False),
+        )
+    except (AudioDecodeError, NoSpeechDetectedError):
+        raise HTTPException(status_code=422, detail="No speech was detected in the recording.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Direct STT transcription failed: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail="Speech transcription is temporarily unavailable.")
+
+
 @app.delete("/audio/{audio_id}", tags=["Audio"])
 async def delete_audio_endpoint(
     request: Request,
@@ -2501,6 +2555,117 @@ async def get_or_generate_summary_audio(
     except Exception as synth_err:
         logger.error(f"TTS synthesis failed for meeting {meeting_id}: {synth_err}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Speech synthesis error: {synth_err}")
+
+
+@app.post("/meetings/{meeting_id}/summary-audio/stream", tags=["Meetings"])
+@limiter.limit("10/minute")
+async def stream_summary_audio(
+    request: Request,
+    meeting_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns the private executive-summary narration as WAV bytes through the
+    authenticated API. Cached GCS bytes are read server-side, so playback does
+    not depend on signed URLs or IAM blob-signing permissions.
+    """
+    summary_text = None
+    summary_lang = None
+    user_id = None
+    guest_scope_id = None
+
+    if current_user is not None:
+        user_id = str(current_user.id)
+        result = await db.execute(select(Meeting).filter(Meeting.id == meeting_id))
+        meeting = result.scalars().first()
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+        if str(meeting.user_id) != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden: consultation belongs to another user")
+
+        if meeting.streams_data and isinstance(meeting.streams_data, dict):
+            comp = meeting.streams_data.get("_companion_summary")
+            if isinstance(comp, dict):
+                summary_text = comp.get("text")
+                summary_lang = comp.get("language")
+            elif isinstance(comp, str):
+                summary_text = comp
+
+        if not summary_text:
+            msg_res = await db.execute(
+                select(ChatMessage).filter(ChatMessage.meeting_id == meeting_id, ChatMessage.role == "assistant")
+            )
+            asst_msg = msg_res.scalars().first()
+            if asst_msg and asst_msg.content:
+                summary_text = asst_msg.content
+
+        if not summary_text and meeting.report_data:
+            summary_text = build_consultation_chat_summary(meeting.report_data, summary_lang or "en")
+
+    else:
+        guest_scope_id, _ = get_guest_scope(request)
+        if not guest_scope_id:
+            raise HTTPException(status_code=401, detail="Authentication or active guest scope required")
+        try:
+            ephemeral_key = f"ephemeral/{guest_scope_id}/meetings/{meeting_id}/summary.json"
+            raw_json = storage_client.download_bytes(ephemeral_key)
+            snapshot = json.loads(raw_json.decode("utf-8"))
+            summary_text = snapshot.get("summary_text")
+            summary_lang = snapshot.get("language")
+        except Exception as e:
+            logger.warning(f"Could not load guest ephemeral summary for stream endpoint: {e}")
+            raise HTTPException(status_code=404, detail="Consultation summary not found or has expired")
+
+    if not summary_text or not summary_text.strip():
+        raise HTTPException(status_code=404, detail="No companion executive summary available")
+
+    normalized_text = prepare_summary_for_speech(summary_text)
+    resolved_lang = resolve_speech_language(summary_text, hint=summary_lang)
+    cache_key = compute_tts_cache_key(normalized_text, resolved_lang)
+    storage_key = build_tts_storage_key(
+        meeting_id=meeting_id,
+        cache_key=cache_key,
+        user_id=user_id,
+        guest_scope_id=guest_scope_id,
+    )
+
+    try:
+        if storage_client.object_exists(storage_key):
+            cached_wav = storage_client.download_bytes(storage_key)
+            if cached_wav:
+                return Response(
+                    content=cached_wav,
+                    media_type="audio/wav",
+                    headers={
+                        "Content-Disposition": f'inline; filename="summary-{meeting_id}.wav"',
+                        "Cache-Control": "private, max-age=600",
+                        "X-Mashwara-Audio-Cache": "hit",
+                    },
+                )
+    except Exception as cache_err:
+        logger.warning(f"Could not read cached TTS audio {storage_key}: {cache_err}")
+
+    try:
+        pcm_bytes = await synthesize_speech(normalized_text, resolved_lang)
+        wav_bytes = pcm_to_wav(pcm_bytes)
+        try:
+            storage_client.save_bytes(storage_key, wav_bytes, content_type="audio/wav")
+        except Exception as cache_save_err:
+            # Playback can still succeed because the bytes are returned directly.
+            logger.warning(f"Could not cache TTS audio {storage_key}: {cache_save_err}")
+        return Response(
+            content=wav_bytes,
+            media_type="audio/wav",
+            headers={
+                "Content-Disposition": f'inline; filename="summary-{meeting_id}.wav"',
+                "Cache-Control": "private, max-age=600",
+                "X-Mashwara-Audio-Cache": "miss",
+            }
+        )
+    except Exception as synth_err:
+        logger.error(f"Stream TTS synthesis failed for meeting {meeting_id}: {synth_err}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Speech synthesis error")
 
 
 # ---------------------------------------------------------------------------

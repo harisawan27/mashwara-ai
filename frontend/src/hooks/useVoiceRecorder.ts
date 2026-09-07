@@ -7,12 +7,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceRecordingState } from "../types/meeting";
-import {
-  presignAudioUpload,
-  uploadAudioBlobToGCS,
-  transcribeAudioNote,
-  cancelAudioUpload,
-} from "../api/client";
+import { transcribeAudioDirect } from "../api/client";
 
 interface UseVoiceRecorderOptions {
   languageHint?: string;
@@ -41,7 +36,6 @@ export function useVoiceRecorder({
 
   const chunksRef = useRef<Blob[]>([]);
   const selectedMimeRef = useRef<string>("audio/webm");
-  const activeAudioIdRef = useRef<string | null>(null);
 
   // Time tracking
   const startTimeRef = useRef<number>(0);
@@ -273,22 +267,12 @@ export function useVoiceRecorder({
     cancelRequestedRef.current = true;
     isPointerDownRef.current = false;
     lockRequestedRef.current = false;
-    const audioId = activeAudioIdRef.current;
     cleanupMedia();
     chunksRef.current = [];
     setDurationSeconds(0);
     setIsApproachingLimit(false);
     setTranscriptionStage(null);
     setState("idle");
-
-    if (audioId) {
-      try {
-        await cancelAudioUpload(audioId);
-      } catch {
-        // ignore
-      }
-      activeAudioIdRef.current = null;
-    }
   }, [cleanupMedia]);
 
   // Finish and transcribe
@@ -328,32 +312,11 @@ export function useVoiceRecorder({
 
       setState("transcribing");
       setTranscriptionStage("uploading");
-      let failedStage: "uploading" | "transcribing" = "uploading";
       try {
-        // 1. Presign upload URL
-        const presignRes = await presignAudioUpload({
-          content_type: mime,
-          size_bytes: rawBlob.size,
-          duration_seconds: finalSecs,
-          language_hint: languageHint,
-        });
-
-        activeAudioIdRef.current = presignRes.audio_id;
-
-        // 2. Upload raw audio blob to temporary GCS signed URL
-        await uploadAudioBlobToGCS(presignRes.upload_url, rawBlob, mime);
-
-        // 3. Request speech-to-text
-        failedStage = "transcribing";
+        // Single-call: send raw audio bytes directly to backend (no GCS)
         setTranscriptionStage("transcribing");
-        const transcribeRes = await transcribeAudioNote(presignRes.audio_id, {
-          gcs_key: presignRes.gcs_key,
-          content_type: mime,
-          language_hint: languageHint,
-          transliterate_roman: true,
-        });
+        const transcribeRes = await transcribeAudioDirect(rawBlob, mime, languageHint);
 
-        activeAudioIdRef.current = null;
         setTranscriptionStage(null);
         setState("idle");
 
@@ -367,22 +330,11 @@ export function useVoiceRecorder({
         )?.response?.status;
         const friendlyError = responseStatus === 422
           ? "No speech was detected. Please record again and speak clearly."
-          : failedStage === "transcribing"
-            ? "Could not transcribe your voice note. Please try again."
-            : "Voice upload couldn't start";
+          : "Could not transcribe your voice note. Please try again.";
         setErrorMessage(friendlyError);
         setTranscriptionStage(null);
         setState("error");
         onError?.(friendlyError);
-
-        if (activeAudioIdRef.current) {
-          try {
-            await cancelAudioUpload(activeAudioIdRef.current);
-          } catch {
-            // ignore
-          }
-          activeAudioIdRef.current = null;
-        }
       }
     };
 

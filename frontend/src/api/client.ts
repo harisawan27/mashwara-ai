@@ -466,6 +466,29 @@ export async function cancelAudioUpload(audioId: string): Promise<void> {
   }
 }
 
+/**
+ * GCS-free single-call transcription.
+ * Sends raw audio bytes directly to the backend — no presign, no upload step.
+ * The backend writes to a temp file, uploads to Gemini Files API, transcribes,
+ * then cleans up. Works in all environments including those without GCS.
+ */
+export async function transcribeAudioDirect(
+  audioBlob: Blob,
+  contentType: string,
+  languageHint: string = "roman-ur"
+): Promise<AudioTranscribeResponse> {
+  const res = await apiClient.post<AudioTranscribeResponse>(
+    `/audio/transcribe-direct?language_hint=${encodeURIComponent(languageHint)}`,
+    audioBlob,
+    {
+      headers: { "Content-Type": contentType },
+      timeout: 120000, // 2 min timeout for transcription
+    }
+  );
+  return res.data;
+}
+
+
 export interface StandardChatAction {
   type?: string;
   action: string;
@@ -760,5 +783,18 @@ export async function getSharedMashwara(shareId: string): Promise<PublicSharedMa
  */
 export async function getSummaryAudio(meetingId: string): Promise<SummaryAudioResponse> {
   const response = await apiClient.post<SummaryAudioResponse>(`/meetings/${meetingId}/summary-audio`);
+  return response.data;
+}
+
+/**
+ * Fetches private narration bytes through the authenticated API. The backend
+ * reads or creates its cache without exposing a signed storage URL.
+ */
+export async function getSummaryAudioBlob(meetingId: string): Promise<Blob> {
+  const response = await apiClient.post<Blob>(
+    `/meetings/${encodeURIComponent(meetingId)}/summary-audio/stream`,
+    null,
+    { responseType: "blob", timeout: 120_000 },
+  );
   return response.data;
 }

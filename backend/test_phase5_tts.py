@@ -21,7 +21,9 @@ import wave
 import struct
 import hashlib
 import unittest
+import asyncio
 from unittest.mock import MagicMock, patch, AsyncMock
+from starlette.requests import Request
 
 from agents.tts import (
     prepare_summary_for_speech,
@@ -39,6 +41,7 @@ from tools.storage import (
     build_tts_storage_key,
     GCSStorageClient,
 )
+from main import app, stream_summary_audio
 
 
 class TestPhase5TTSNormalization(unittest.TestCase):
@@ -312,6 +315,80 @@ class TestPhase5TTSGuestEphemeralPayload(unittest.TestCase):
         self.assertNotIn("raw_evidence", parsed)
         self.assertNotIn("hidden_prompts", parsed)
         self.assertNotIn("internal_logs", parsed)
+
+
+class TestPhase5TTSStreaming(unittest.TestCase):
+    """Validates signed-URL-free playback and server-side cache delivery."""
+
+    @staticmethod
+    def make_request() -> Request:
+        return Request({
+            "type": "http",
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/meetings/meeting-1/summary-audio/stream",
+            "raw_path": b"/meetings/meeting-1/summary-audio/stream",
+            "query_string": b"",
+            "headers": [],
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+            "app": app,
+        })
+
+    @patch("main.storage_client")
+    def test_stream_serves_cached_wav_bytes(self, mock_storage):
+        mock_storage.object_exists.return_value = True
+        mock_storage.download_bytes.return_value = b"RIFFcached-wave"
+        meeting = MagicMock()
+        meeting.user_id = "user-123"
+        meeting.streams_data = {
+            "_companion_summary": {"text": "The council recommends approval.", "language": "en"}
+        }
+        meeting.report_data = None
+        db_result = MagicMock()
+        db_result.scalars.return_value.first.return_value = meeting
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=db_result)
+        user = MagicMock()
+        user.id = "user-123"
+        request = self.make_request()
+
+        response = asyncio.run(stream_summary_audio(request, "meeting-1", user, db))
+
+        self.assertEqual(response.body, b"RIFFcached-wave")
+        self.assertEqual(response.media_type, "audio/wav")
+        self.assertEqual(response.headers["x-mashwara-audio-cache"], "hit")
+
+    @patch("main.synthesize_speech", new_callable=AsyncMock)
+    @patch("main.pcm_to_wav", return_value=b"RIFFfresh-wave")
+    @patch("main.storage_client")
+    def test_stream_returns_fresh_audio_when_cache_misses(
+        self,
+        mock_storage,
+        _mock_pcm_to_wav,
+        mock_synthesize,
+    ):
+        mock_storage.object_exists.return_value = False
+        mock_synthesize.return_value = b"pcm"
+        meeting = MagicMock()
+        meeting.user_id = "user-123"
+        meeting.streams_data = {
+            "_companion_summary": {"text": "The council recommends approval.", "language": "en"}
+        }
+        meeting.report_data = None
+        db_result = MagicMock()
+        db_result.scalars.return_value.first.return_value = meeting
+        db = MagicMock()
+        db.execute = AsyncMock(return_value=db_result)
+        user = MagicMock()
+        user.id = "user-123"
+
+        response = asyncio.run(stream_summary_audio(self.make_request(), "meeting-1", user, db))
+
+        self.assertEqual(response.body, b"RIFFfresh-wave")
+        self.assertEqual(response.headers["x-mashwara-audio-cache"], "miss")
+        mock_storage.save_bytes.assert_called_once()
 
 
 if __name__ == "__main__":

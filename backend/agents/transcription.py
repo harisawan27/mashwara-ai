@@ -11,6 +11,8 @@ Handles audio transcription using Gemini 3.5 Transcribe:
 
 import os
 import re
+import shutil
+import subprocess
 import tempfile
 import logging
 from typing import Dict, Any, Optional
@@ -30,6 +32,71 @@ logger = logging.getLogger("mashwara_ai.transcription")
 
 class NoSpeechDetectedError(ValueError):
     """Raised when STT succeeds but the recording contains no usable speech."""
+
+
+class AudioDecodeError(ValueError):
+    """Raised when a browser recording cannot be decoded into standard WAV."""
+
+
+def normalize_audio_for_transcription(
+    source_path: str,
+    content_type: str,
+) -> tuple[str, str, Optional[str]]:
+    """Convert browser audio to mono 16 kHz WAV before sending it to STT.
+
+    Chrome records WebM/Opus. Although the Gemini upload API accepts a WebM
+    MIME type, the transcription models can reject particular MediaRecorder
+    WebM streams. A standard PCM WAV removes that container/codec variance.
+
+    Returns ``(path, mime_type, cleanup_path)``. WAV input is returned as-is;
+    other supported formats are converted with the ffmpeg binary bundled in
+    the production image.
+    """
+    normalized_type = (content_type or "audio/webm").split(";", 1)[0].strip().lower()
+    if normalized_type in {"audio/wav", "audio/x-wav", "audio/wave"}:
+        return source_path, "audio/wav", None
+
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        raise RuntimeError("Audio converter is unavailable on the server.")
+
+    output_fd, output_path = tempfile.mkstemp(suffix=".wav", prefix="mashwara_stt_pcm_")
+    os.close(output_fd)
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg_path,
+                "-nostdin",
+                "-hide_banner",
+                "-loglevel", "error",
+                "-y",
+                "-i", source_path,
+                "-vn",
+                "-ac", "1",
+                "-ar", "16000",
+                "-c:a", "pcm_s16le",
+                output_path,
+            ],
+            check=False,
+            capture_output=True,
+            timeout=60,
+        )
+        if completed.returncode != 0 or not os.path.exists(output_path) or os.path.getsize(output_path) <= 44:
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()[-500:]
+            logger.warning("Audio normalization failed: %s", detail or "invalid audio stream")
+            raise AudioDecodeError("The recording could not be decoded.")
+        logger.info(
+            "Normalized %s recording to 16 kHz mono WAV (%d bytes).",
+            normalized_type,
+            os.path.getsize(output_path),
+        )
+        return output_path, "audio/wav", output_path
+    except subprocess.TimeoutExpired as exc:
+        raise AudioDecodeError("The recording took too long to decode.") from exc
+    except Exception:
+        if os.path.exists(output_path):
+            os.unlink(output_path)
+        raise
 
 # ---------------------------------------------------------------------------
 # High-Value Domain Vocabulary (30 Focused Terms)
@@ -242,6 +309,122 @@ def transcribe_voice_note(
             logger.warning(f"Could not delete temporary GCS audio {storage_key}: {e}")
 
     # 4. Roman Urdu Transliteration Pass if requested and needed
+    was_transliterated = False
+    final_transcript = raw_transcript
+    target_lang = (language or "roman-ur").lower()
+
+    if target_lang == "roman-ur" and has_significant_urdu_script(raw_transcript):
+        final_transcript = transliterate_urdu_to_roman_urdu(raw_transcript)
+        was_transliterated = True
+
+    return {
+        "transcript": final_transcript,
+        "transliterated": was_transliterated
+    }
+
+
+def transcribe_voice_note_from_bytes(
+    audio_bytes: bytes,
+    content_type: str,
+    language: str = "roman-ur",
+) -> Dict[str, Any]:
+    """
+    GCS-free transcription path: accepts raw audio bytes, writes to a local
+    temp file, uploads to Gemini Files API, transcribes, then cleans up.
+    Returns {"transcript": str, "transliterated": bool}.
+    This function works even when Google Cloud Storage is unavailable.
+    """
+    if not audio_bytes:
+        raise ValueError("Empty audio bytes provided for transcription.")
+
+    genai_client = genai.Client()
+
+    normalized_content_type = (content_type or "audio/webm").split(";", 1)[0].strip().lower()
+    ext = get_audio_extension_for_mime(normalized_content_type)
+    temp_fd, temp_local_path = tempfile.mkstemp(suffix=ext, prefix="mashwara_stt_direct_")
+    os.close(temp_fd)
+
+    gemini_file_name: str | None = None
+    normalized_temp_path: str | None = None
+    raw_transcript: str = ""
+
+    try:
+        # Write audio bytes to temp file
+        with open(temp_local_path, "wb") as f:
+            f.write(audio_bytes)
+
+        # Normalize MediaRecorder WebM/Opus (and other compressed browser
+        # formats) to the WAV format proven reliable with Gemini Transcribe.
+        upload_path, upload_content_type, normalized_temp_path = normalize_audio_for_transcription(
+            temp_local_path,
+            normalized_content_type,
+        )
+
+        # Upload normalized audio to Gemini Files API
+        logger.info(
+            "[Direct STT] Uploading normalized %s audio to Gemini Files API...",
+            upload_content_type,
+        )
+        file_ref = genai_client.files.upload(
+            file=upload_path,
+            config=types.UploadFileConfig(mime_type=upload_content_type)
+        )
+        gemini_file_name = file_ref.name
+        logger.info(f"[Direct STT] Gemini Files upload complete: {gemini_file_name}")
+
+        # Primary: dedicated STT Interactions API
+        try:
+            interaction = genai_client.interactions.create(
+                model=TRANSCRIBE_MODEL,
+                input=[{
+                    "type": "audio",
+                    "uri": file_ref.uri,
+                    "mime_type": upload_content_type,
+                }],
+            )
+            raw_transcript = (interaction.output_text or "").strip()
+            if not raw_transcript:
+                raise RuntimeError("Dedicated STT returned an empty transcript.")
+        except Exception as primary_error:
+            logger.warning(
+                f"[Direct STT] Dedicated STT failed ({primary_error}); "
+                f"retrying with {TRANSCRIBE_FALLBACK_MODEL}."
+            )
+            response = genai_client.models.generate_content(
+                model=TRANSCRIBE_FALLBACK_MODEL,
+                contents=[file_ref, build_transcription_prompt(language)],
+                config=types.GenerateContentConfig(temperature=0.0),
+            )
+            raw_transcript = (response.text or "").strip()
+
+        if not raw_transcript:
+            raise NoSpeechDetectedError("No speech was detected in the recording.")
+        logger.info(f"[Direct STT] Transcription succeeded ({len(raw_transcript)} chars).")
+
+    finally:
+        # Cleanup Gemini Files resource
+        if gemini_file_name:
+            try:
+                genai_client.files.delete(name=gemini_file_name)
+                logger.info(f"[Direct STT] Deleted Gemini Files resource: {gemini_file_name}")
+            except Exception as e:
+                logger.warning(f"[Direct STT] Could not delete Gemini file {gemini_file_name}: {e}")
+
+        # Cleanup local temp file
+        if temp_local_path and os.path.exists(temp_local_path):
+            try:
+                os.unlink(temp_local_path)
+            except Exception as e:
+                logger.warning(f"[Direct STT] Could not unlink temp file {temp_local_path}: {e}")
+        if normalized_temp_path and os.path.exists(normalized_temp_path):
+            try:
+                os.unlink(normalized_temp_path)
+            except Exception as e:
+                logger.warning(
+                    f"[Direct STT] Could not unlink normalized temp file {normalized_temp_path}: {e}"
+                )
+
+    # Roman Urdu transliteration pass if needed
     was_transliterated = False
     final_transcript = raw_transcript
     target_lang = (language or "roman-ur").lower()
