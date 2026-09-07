@@ -2,8 +2,7 @@
  * Mashwara AI — Composer Plus Menu
  * ==================================
  * The "+" button in the composer toolbar. Opens:
- * - Desktop: an anchored popover above the button
- * - Mobile (<= 640px): a bottom sheet with backdrop
+ * - Desktop and mobile: a compact anchored popover above the button
  *
  * Surfaces:
  *  📄 Documents — triggers docInputRef
@@ -101,42 +100,38 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
     label,
     onClick,
     active,
-    children,
   }: {
     icon: string;
     label: string;
     onClick?: () => void;
     active?: boolean;
-    children?: React.ReactNode;
   }) => (
     <div>
       <button
         type="button"
         onClick={onClick}
-        className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-start min-h-[48px] ${
+        className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors text-start rounded-lg ${
           active
             ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300"
             : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
         }`}
       >
-        <span className="text-base w-5 text-center">{icon}</span>
-        <span className="flex-1">{label}</span>
+        <span className="text-sm w-5 text-center flex-shrink-0">{icon}</span>
+        <span className="flex-1 min-w-0 truncate">{label}</span>
         {active && <span className="text-blue-500 text-xs font-bold">✓</span>}
-        {children && <span className="text-slate-400 text-xs">▸</span>}
       </button>
-      {children}
     </div>
   );
 
   // ─── Web sub-picker ─────────────────────────────────────────────────────────
   const WebSubPicker = () => (
-    <div className="border-t border-slate-100 dark:border-white/[0.06] bg-slate-50/80 dark:bg-slate-800/40">
+    <div>
       {(["auto", "on", "off"] as const).map((mode) => (
         <button
           key={mode}
           type="button"
           onClick={() => handleWebMode(mode)}
-          className={`w-full flex items-center gap-3 px-6 py-2.5 text-xs font-medium transition-colors text-start min-h-[40px] ${
+          className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 text-sm font-medium whitespace-nowrap rounded-lg transition-colors text-start ${
             webSearchMode === mode
               ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold"
               : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50"
@@ -147,13 +142,14 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-current" />
             )}
           </span>
-          <span>
+          <span className="flex-1 min-w-0 truncate">
             {mode === "auto"
               ? t.webSearch?.modeAuto || "Auto"
               : mode === "on"
               ? t.webSearch?.modeOn || "On"
               : t.webSearch?.modeOff || "Off"}
           </span>
+          {webSearchMode === mode && <span className="flex-shrink-0 text-blue-500 text-xs font-bold">✓</span>}
         </button>
       ))}
     </div>
@@ -165,53 +161,41 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
       ref={menuRef}
       role="menu"
       aria-label="Add context"
-      className="py-1"
+      className="p-1"
     >
-      <MenuRow
-        icon="📄"
-        label={t.attachments?.attachFiles || "Documents"}
-        onClick={handleDocClick}
-      />
-      <MenuRow
-        icon="🖼️"
-        label={t.attachments?.attachImages || "Images"}
-        onClick={handleImgClick}
-      />
-      <div className="h-px bg-slate-100 dark:bg-white/[0.06] mx-3" />
-      <div>
-        <button
-          type="button"
-          onClick={() => setWebSubOpen((v) => !v)}
-          className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium transition-colors text-start min-h-[48px] ${
-            webSearchMode !== "off"
-              ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300"
-              : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
-          }`}
-        >
-          <span className="text-base w-5 text-center">🌐</span>
-          <span className="flex-1">
-            {t.webSearch?.tooltip
-              ? "Web Research"
-              : "Web Research"}
-          </span>
-          <span className="text-xs text-slate-400 font-normal mr-1">
-            {webSearchMode === "auto"
-              ? t.webSearch?.modeAuto || "Auto"
-              : webSearchMode === "on"
-              ? t.webSearch?.modeOn || "On"
-              : t.webSearch?.modeOff || "Off"}
-          </span>
-          <svg
-            className={`w-3.5 h-3.5 text-slate-400 transition-transform ${webSubOpen ? "rotate-90" : ""}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+      {webSubOpen ? (
+        <>
+          <button
+            type="button"
+            onClick={() => setWebSubOpen(false)}
+            className="w-full min-h-10 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
           >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-        {webSubOpen && <WebSubPicker />}
-      </div>
+            <span className="text-slate-400 rtl:rotate-180">‹</span>
+            <span className="truncate">Web Research</span>
+          </button>
+          <div className="h-px bg-slate-100 dark:bg-white/[0.06] mx-2" />
+          <WebSubPicker />
+        </>
+      ) : (
+        <>
+          <MenuRow icon="📄" label={t.attachments?.attachFiles || "Documents"} onClick={handleDocClick} />
+          <MenuRow icon="🖼️" label={t.attachments?.attachImages || "Images"} onClick={handleImgClick} />
+          <div className="h-px bg-slate-100 dark:bg-white/[0.06] mx-2" />
+          <button
+            type="button"
+            onClick={() => setWebSubOpen(true)}
+            className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors text-start ${
+              webSearchMode !== "off"
+                ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
+            }`}
+          >
+            <span className="text-sm w-5 text-center flex-shrink-0">🌐</span>
+            <span className="flex-1 min-w-0 truncate">Web Research</span>
+            <span className="flex-shrink-0 text-xs text-slate-400 rtl:rotate-180">›</span>
+          </button>
+        </>
+      )}
     </div>
   );
 
@@ -227,7 +211,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         aria-label="Add context"
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+        className={`flex flex-shrink-0 items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
           isOpen
             ? "bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
             : disabled
@@ -241,36 +225,11 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
       </button>
 
       {isOpen && (
-        <>
-          {/* Click-outside backdrop */}
-          <div className="fixed inset-0 z-30" onClick={close} aria-hidden="true" />
-
-          {/* Desktop: anchored popover */}
-          <div
-            className={`hidden sm:block absolute z-40 bottom-full mb-2 ${
-              isRTL ? "right-0" : "left-0"
-            } w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-2xl shadow-xl overflow-hidden animate-fade-in`}
-          >
-            <MenuContent />
-          </div>
-
-          {/* Mobile: bottom sheet */}
-          <div className="sm:hidden fixed inset-x-0 bottom-0 z-40 animate-slide-up">
-            {/* Sheet backdrop */}
-            <div className="fixed inset-0 bg-black/30 dark:bg-black/50" onClick={close} />
-            <div className="relative bg-white dark:bg-slate-900 rounded-t-2xl shadow-2xl pb-safe overflow-hidden">
-              {/* Drag handle */}
-              <div className="flex justify-center pt-3 pb-1">
-                <div className="w-10 h-1 rounded-full bg-slate-300 dark:bg-slate-600" />
-              </div>
-              <p className="px-4 pb-2 text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                Add to message
-              </p>
-              <MenuContent />
-              <div className="h-6 pb-[env(safe-area-inset-bottom)]" />
-            </div>
-          </div>
-        </>
+        <div
+          className={`absolute z-40 bottom-full mb-2 ${isRTL ? "right-0" : "left-0"} w-[216px] max-w-[calc(100vw-24px)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl overflow-hidden animate-fade-in`}
+        >
+          <MenuContent />
+        </div>
       )}
     </div>
   );

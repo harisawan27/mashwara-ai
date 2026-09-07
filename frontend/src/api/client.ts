@@ -6,7 +6,7 @@
  */
 
 import axios from "axios";
-import type { AttachmentItem, AudioPresignResponse, AudioTranscribeResponse, SummaryAudioResponse } from "../types/meeting";
+import type { AttachmentItem, SummaryAudioResponse } from "../types/meeting";
 
 // ---------------------------------------------------------------------------
 // Axios instance (for non-streaming calls like health check)
@@ -376,118 +376,6 @@ export function uploadFileToSignedUrl(
     xhr.send(file);
   });
 }
-
-// ---------------------------------------------------------------------------
-// Voice Note STT Methods (Phase 4)
-// ---------------------------------------------------------------------------
-export async function presignAudioUpload(params: {
-  content_type: string;
-  size_bytes: number;
-  duration_seconds?: number;
-  language_hint?: string;
-}): Promise<AudioPresignResponse> {
-  const res = await apiClient.post<AudioPresignResponse>("/audio/presign", params);
-  return res.data;
-}
-
-export function uploadAudioBlobToGCS(
-  uploadUrl: string,
-  blob: Blob,
-  contentType: string,
-  onProgress?: (percent: number) => void
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const isApiUpload = uploadUrl.startsWith("/");
-    const resolvedUploadUrl = isApiUpload
-      ? `${API_BASE.replace(/\/$/, "")}${uploadUrl}`
-      : uploadUrl;
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", resolvedUploadUrl, true);
-    xhr.setRequestHeader("Content-Type", contentType);
-
-    if (isApiUpload) {
-      const token = localStorage.getItem("token");
-      if (token) {
-        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-      } else {
-        const guestHeaders = getGuestScopeHeaders();
-        Object.entries(guestHeaders).forEach(([key, value]) => {
-          xhr.setRequestHeader(key, value);
-        });
-      }
-    }
-
-    if (xhr.upload && onProgress) {
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const pct = Math.round((e.loaded / e.total) * 100);
-          onProgress(pct);
-        }
-      };
-    }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
-      } else {
-        reject(new Error(`Audio upload failed with status ${xhr.status}`));
-      }
-    };
-
-    xhr.onerror = () => {
-      reject(new Error("Network error during audio upload to temporary storage"));
-    };
-
-    xhr.send(blob);
-  });
-}
-
-export async function transcribeAudioNote(
-  audioId: string,
-  params: {
-    gcs_key?: string;
-    content_type?: string;
-    language_hint?: string;
-    transliterate_roman?: boolean;
-  }
-): Promise<AudioTranscribeResponse> {
-  const res = await apiClient.post<AudioTranscribeResponse>(
-    `/audio/${encodeURIComponent(audioId)}/transcribe`,
-    params
-  );
-  return res.data;
-}
-
-export async function cancelAudioUpload(audioId: string): Promise<void> {
-  try {
-    await apiClient.delete(`/audio/${encodeURIComponent(audioId)}`);
-  } catch (err) {
-    console.warn("Could not delete temporary audio object:", err);
-  }
-}
-
-/**
- * GCS-free single-call transcription.
- * Sends raw audio bytes directly to the backend — no presign, no upload step.
- * The backend writes to a temp file, uploads to Gemini Files API, transcribes,
- * then cleans up. Works in all environments including those without GCS.
- */
-export async function transcribeAudioDirect(
-  audioBlob: Blob,
-  contentType: string,
-  languageHint: string = "roman-ur"
-): Promise<AudioTranscribeResponse> {
-  const res = await apiClient.post<AudioTranscribeResponse>(
-    `/audio/transcribe-direct?language_hint=${encodeURIComponent(languageHint)}`,
-    audioBlob,
-    {
-      headers: { "Content-Type": contentType },
-      timeout: 120000, // 2 min timeout for transcription
-    }
-  );
-  return res.data;
-}
-
 
 export interface StandardChatAction {
   type?: string;

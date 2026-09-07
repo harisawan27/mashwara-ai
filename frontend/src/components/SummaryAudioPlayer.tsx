@@ -1,8 +1,8 @@
 /**
- * SummaryAudioPlayer — Executive Voice Narration Player (Phase 5)
+ * SummaryAudioPlayer — Summary Narration Player (Phase 5)
  * ================================================================
  * Speaks the exact persisted companion executive summary using Google's dedicated
- * gemini-3.1-flash-tts-preview model with the authoritative adult male voice 'Charon'.
+ * configured narration model and voice.
  *
  * Features:
  * - Lazy on-demand audio generation (0 cost until user clicks Listen)
@@ -164,13 +164,13 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   // Initial Unloaded Pill
   if (!audioUrl) {
     return (
-      <div className={`mt-3 min-w-0 flex flex-wrap items-center gap-2 ${className}`}>
+      <div className={`mt-3 min-w-0 flex items-center gap-2 ${className}`}>
         <button
           type="button"
           onClick={handleFetchAudio}
           disabled={isLoading}
           aria-label={t.summaryAudio?.listen || "Listen to Summary"}
-          className="max-w-full inline-flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
+          className="h-9 max-w-full inline-flex flex-shrink-0 items-center gap-2 px-3 rounded-xl text-xs font-semibold whitespace-nowrap bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
         >
           {isLoading ? (
             <>
@@ -182,22 +182,19 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
             </>
           ) : (
             <>
-              <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-500/30 group-hover:scale-105 transition-transform">
-                <svg className="w-2.5 h-2.5 ml-0.5 rtl:ml-0 rtl:mr-0.5" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
+              <div className="w-5 h-5 rounded-lg bg-blue-600 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-500/30 group-hover:scale-105 transition-transform">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M3 9v6h4l5 4V5L7 9H3zm13.5 3a4.5 4.5 0 00-2.5-4.03v8.05A4.5 4.5 0 0016.5 12zm0-8.5v2.06A7 7 0 0119 12a7 7 0 01-2.5 5.44v2.06A9 9 0 0021 12a9 9 0 00-4.5-8.5z" />
                 </svg>
               </div>
-              <span className="min-w-0 font-medium leading-snug">{t.summaryAudio?.listen || "Listen to Summary"}</span>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-600/10 dark:bg-blue-400/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                {t.summaryAudio?.voiceLabel || "Executive Voice"}
-              </span>
+              <span className="font-medium">{t.summaryAudio?.listen || "Listen"}</span>
             </>
           )}
         </button>
 
         {error && (
-          <span className="text-xs text-red-500 dark:text-red-400 flex items-center gap-1">
-            <span>⚠️</span> {error}
+          <span className="min-w-0 truncate whitespace-nowrap text-xs text-red-500 dark:text-red-400" title={error}>
+            ⚠️ {error}
           </span>
         )}
       </div>
@@ -207,7 +204,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   // Active Player Bar
   return (
     <div
-      className={`mt-3 w-full max-w-lg p-2.5 sm:p-3 rounded-2xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/90 dark:border-white/10 shadow-sm flex flex-col gap-2 transition-all animate-fade-in ${className}`}
+      className={`mt-3 w-full max-w-[430px] h-12 px-1.5 rounded-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/90 dark:border-white/10 shadow-sm flex items-center gap-1 min-[360px]:gap-1.5 transition-all animate-fade-in ${className}`}
       dir="ltr" // Player controls consistently LTR for waveform/scrubber ergonomics
     >
       <audio
@@ -230,13 +227,12 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
         }}
       />
 
-      <div className="flex items-center gap-2.5">
-        {/* Play/Pause Button (>= 44px touch target) */}
+        {/* Play/Pause */}
         <button
           type="button"
           onClick={togglePlay}
           aria-label={isPlaying ? (t.summaryAudio?.pause || "Pause") : (t.summaryAudio?.playing || "Play")}
-          className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center flex-shrink-0 shadow-md shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
+          className="w-9 h-9 min-w-9 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-500/20 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900"
         >
           {isPlaying ? (
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -249,40 +245,31 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           )}
         </button>
 
-        {/* Scrubber & Time */}
-        <div className="flex-1 flex flex-col gap-1">
-          <div className="flex items-center justify-between text-[11px] font-medium text-slate-500 dark:text-slate-400">
-            <span className="font-mono text-[10px]">{formatTime(currentTime)}</span>
-            <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold tracking-wider text-blue-600 dark:text-blue-400">
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
-              <span>Charon</span>
-            </div>
-            <span className="font-mono text-[10px]">{formatTime(duration)}</span>
-          </div>
+        <span className="flex-shrink-0 whitespace-nowrap font-mono text-[9px] min-[360px]:text-[10px] text-slate-500 dark:text-slate-400">{formatTime(currentTime)}</span>
 
-          <div className="relative flex items-center group">
-            <input
-              type="range"
-              min={0}
-              max={duration || 100}
-              step={0.1}
-              value={currentTime}
-              onChange={handleSeek}
-              aria-label="Audio scrubber"
-              className="w-full h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full appearance-none cursor-pointer accent-blue-600 group-hover:h-2 transition-all focus:outline-none"
-              style={{
-                background: `linear-gradient(to right, #2563EB ${(currentTime / (duration || 1)) * 100}%, rgba(148, 163, 184, 0.25) ${(currentTime / (duration || 1)) * 100}%)`,
-              }}
-            />
-          </div>
-        </div>
+        {/* Seek timeline */}
+        <input
+          type="range"
+          min={0}
+          max={duration || 100}
+          step={0.1}
+          value={currentTime}
+          onChange={handleSeek}
+          aria-label="Audio scrubber"
+          className="min-w-0 flex-1 h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+          style={{
+            background: `linear-gradient(to right, #2563EB ${(currentTime / (duration || 1)) * 100}%, rgba(148, 163, 184, 0.25) ${(currentTime / (duration || 1)) * 100}%)`,
+          }}
+        />
+
+        <span className="flex-shrink-0 whitespace-nowrap font-mono text-[9px] min-[360px]:text-[10px] text-slate-500 dark:text-slate-400">{formatTime(duration)}</span>
 
         {/* Speed Toggle */}
         <button
           type="button"
           onClick={cyclePlaybackRate}
           title="Playback speed"
-          className="min-w-[36px] h-8 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-center focus:outline-none"
+          className="w-8 min-w-8 h-8 px-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[10px] font-bold whitespace-nowrap text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-center focus:outline-none"
         >
           {playbackRate}x
         </button>
@@ -293,13 +280,12 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           onClick={handleReplay}
           title={t.summaryAudio?.replay || "Replay"}
           aria-label={t.summaryAudio?.replay || "Replay"}
-          className="w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center justify-center transition-colors focus:outline-none"
+          className="w-8 min-w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center justify-center transition-colors focus:outline-none"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </button>
-      </div>
     </div>
   );
 }

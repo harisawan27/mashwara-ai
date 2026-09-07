@@ -329,20 +329,8 @@ export type VoiceRecordingState =
   | "recording"
   | "locked"
   | "paused"
-  | "transcribing"
+  | "finalizing"
   | "error";
-
-export interface AudioPresignResponse {
-  upload_url: string;
-  audio_id: string;
-  gcs_key: string;
-  expires_in_seconds: number;
-}
-
-export interface AudioTranscribeResponse {
-  transcript: string;
-  transliterated: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Companion Summary TTS Types (Phase 5)

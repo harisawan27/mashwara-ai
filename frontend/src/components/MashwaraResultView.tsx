@@ -224,6 +224,14 @@ export default function MashwaraResultView({
   const doneCount = activeStreams.filter((k) => effectiveStreams[k]?.status === "done").length;
   const totalAgents = roles.length;
   const decStyle = token(report?.final_decision, t);
+  const isDeferredDecision = !["YES", "APPROVE", "NO", "REJECT"].includes((report?.final_decision || "").toUpperCase());
+  const compactDecisionLabel = isDeferredDecision
+    ? currentLanguage === "ur"
+      ? "غور درکار"
+      : currentLanguage === "roman-ur"
+      ? "Ghor Darkar"
+      : "Defer"
+    : decStyle.label;
   const hasReport = !!report;
 
   const templateLabel =
@@ -411,9 +419,10 @@ export default function MashwaraResultView({
               <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 dark:text-white mb-3 leading-snug">
                 {report.decision_title || displayDecisionTitle}
               </h1>
-              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold ring-1 ${decStyle.pill}`}>
+              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap ring-1 ${decStyle.pill}`} aria-label={decStyle.label} title={decStyle.label}>
                 <span>{decStyle.icon}</span>
-                {decStyle.label}
+                <span className="sm:hidden">{compactDecisionLabel}</span>
+                <span className="hidden sm:inline">{decStyle.label}</span>
               </span>
             </div>
           </div>
@@ -424,19 +433,20 @@ export default function MashwaraResultView({
               <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-3 font-semibold">
                 {t.canvas.boardVotes}
               </p>
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="grid grid-cols-1 sm:flex sm:flex-wrap gap-2 mb-4">
                 {Object.entries(report.board_votes).map(([agent, v]: any) => {
                   const vt = token(v.vote, t);
                   return (
                     <div
                       key={agent}
-                      className={`flex max-w-full min-w-0 items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${vt.pill} text-[10px] sm:text-[11px] font-semibold`}
+                      className="flex w-full sm:w-auto max-w-full min-w-0 items-center gap-2 px-2.5 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-white/10 bg-white/50 dark:bg-white/[0.04] text-[10px] sm:text-[11px] font-semibold"
                     >
-                      <span className="shrink-0">{vt.icon}</span>
-                      <span className="min-w-0 truncate text-slate-700 dark:text-slate-300">
+                      <span className="min-w-0 flex-1 text-start leading-snug text-slate-700 dark:text-slate-300">
                         {roles.find((r) => r.key === agent)?.name || t.agents[agent]?.title || agent}
                       </span>
-                      <span className="shrink-0 text-slate-400 font-normal">{v.confidence}%</span>
+                      <span className={`shrink-0 inline-flex items-center gap-1 whitespace-nowrap px-1.5 py-0.5 rounded ${vt.pill}`} aria-label={`${vt.label} · ${v.confidence}%`} title={`${vt.label} · ${v.confidence}%`}>
+                        {vt.icon} <span className="hidden sm:inline">{vt.label} ·</span> {v.confidence}%
+                      </span>
                     </div>
                   );
                 })}
@@ -669,7 +679,7 @@ export default function MashwaraResultView({
                         {role.icon}
                       </span>
                       <div className="flex-1 min-w-0 text-start">
-                        <span className="text-xs font-semibold text-slate-900 dark:text-white block truncate">
+                        <span className="text-xs font-semibold text-slate-900 dark:text-white block leading-snug">
                           {t.agents[role.key]?.title || role.name || role.key}
                         </span>
                         <span className="text-[10px] text-slate-500 truncate">
@@ -677,8 +687,8 @@ export default function MashwaraResultView({
                         </span>
                       </div>
                       {vote && (
-                        <span className={`max-w-[104px] sm:max-w-none truncate whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`}>
-                          {vt.icon} {vt.label} · {vote.confidence}%
+                        <span className={`whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`} aria-label={`${vt.label} · ${vote.confidence}%`} title={`${vt.label} · ${vote.confidence}%`}>
+                          {vt.icon} <span className="hidden sm:inline">{vt.label} ·</span> {vote.confidence}%
                         </span>
                       )}
                       <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0 group-open:rotate-90 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">

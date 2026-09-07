@@ -290,13 +290,11 @@ export default function Dashboard() {
   };
 
   const handleVoiceTranscript = (transcript: string) => {
-    if (!transcript || !transcript.trim()) return;
+    const spoken = transcript.trim();
+    if (!spoken) return;
     setInput((prev) => {
-      const trimmed = prev.trim();
-      if (!trimmed) {
-        return transcript.trim();
-      }
-      return `${trimmed}\n\n${transcript.trim()}`;
+      if (!prev) return spoken;
+      return /\s$/.test(prev) ? `${prev}${spoken}` : `${prev} ${spoken}`;
     });
     setTimeout(() => {
       if (textareaRef.current) {
@@ -1257,7 +1255,7 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        className="flex items-center gap-1 sm:gap-2 text-[10px] sm:text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        className="flex flex-shrink-0 items-center gap-1 sm:gap-2 text-[10px] sm:text-xs font-medium whitespace-nowrap bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       >
                         <span className="max-w-[48px] min-[360px]:max-w-[76px] sm:max-w-none truncate whitespace-nowrap">
                           {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}

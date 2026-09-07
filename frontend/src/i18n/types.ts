@@ -242,15 +242,12 @@ export interface TranslationSchema {
     recordTooltip: string;
     holdToRecord: string;
     slideToCancel: string;
+    cancelShort: string;
     slideUpToLock: string;
     recording: string;
     locked: string;
     paused: string;
-    transcribing: string;
-    uploading: string;
-    transcribingVoice: string;
-    understandingLanguages: string;
-    uploadFailed: string;
+    finalizing: string;
     tryAgain: string;
     approachingLimit: string;
     deleteTooltip: string;
@@ -261,7 +258,9 @@ export interface TranslationSchema {
     timeLimitWarning: string;
     permissionDenied: string;
     unsupportedBrowser: string;
-    transcriptionFailed: string;
+    noMicrophone: string;
+    networkError: string;
+    recognitionFailed: string;
   };
   summaryAudio: {
     listen: string;
@@ -273,4 +272,3 @@ export interface TranslationSchema {
     voiceLabel: string;
   };
 }
-

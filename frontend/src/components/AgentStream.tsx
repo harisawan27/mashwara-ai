@@ -107,10 +107,15 @@ export default function AgentStream({
           </p>
           {vs && (
             <div className="pt-0.5 flex items-center gap-1.5 flex-wrap">
-              <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vs.pill}`}>
-                {vs.icon} {vs.label}
+              <span
+                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 whitespace-nowrap ${vs.pill}`}
+                aria-label={`${vs.label}${currentConf !== undefined ? ` · ${currentConf}%` : ""}`}
+                title={`${vs.label}${currentConf !== undefined ? ` · ${currentConf}%` : ""}`}
+              >
+                <span>{vs.icon}</span>
+                <span className="hidden sm:inline">{vs.label}</span>
                 {currentConf !== undefined && (
-                  <span className="font-normal opacity-80 ml-0.5 rtl:ml-0 rtl:mr-0.5">· {currentConf}%</span>
+                  <span className="font-normal opacity-80 sm:ml-0.5 sm:rtl:ml-0 sm:rtl:mr-0.5"><span className="hidden sm:inline">· </span>{currentConf}%</span>
                 )}
               </span>
             </div>
@@ -120,7 +125,7 @@ export default function AgentStream({
         {/* Far edge: Status chip + Expand chevron */}
         <div className="flex items-center gap-2 flex-shrink-0 mt-0.5">
           {/* Status chip */}
-          <span>
+          <span className="whitespace-nowrap" aria-label={isActive ? t.common.thinking : isWaiting ? t.common.waiting : t.common.done} title={isActive ? t.common.thinking : isWaiting ? t.common.waiting : t.common.done}>
             {isActive ? (
               <span className="flex items-center gap-1.5 text-[10px] text-blue-500 font-medium">
                 <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">

@@ -3,20 +3,20 @@
  * =======================================================
  * WhatsApp-familiar interaction model transformed directly inside composer:
  * 1. Hold Mic: Composer toolbar row becomes full-width recording surface
- * 2. Drag Left (physical dx <= -80px): Slide-to-cancel with zero network upload
+ * 2. Drag Left (physical dx <= -80px): Slide-to-cancel
  * 3. Drag Up (physical dy <= -65px): Lock hands-free recording
  * 4. Locked Dock: Delete (destructive), Pause/Resume, Finish (primary) with >= 44x44 targets
- * 5. Normal Release: Surface transitions to "Uploading securely..." -> "Transcribing your voice..."
- * 6. Error State: In-composer "⚠️ Voice upload couldn't start [Try again]" preserving draft
+ * 5. Normal Release: Browser speech recognition finalizes into the composer draft
+ * 6. Error State: In-composer browser/microphone guidance preserving draft
  * 7. Physical LEFT stays left even in Urdu RTL.
  */
 
 import React, { useState, useRef, useEffect } from "react";
-import { useVoiceRecorder } from "../hooks/useVoiceRecorder";
+import { useSpeechInput } from "../hooks/useSpeechInput";
 import { useTranslation } from "../i18n";
 
 interface VoiceRecorderProps {
-  onTranscriptReady: (transcript: string, transliterated: boolean) => void;
+  onTranscriptReady: (transcript: string) => void;
   disabled?: boolean;
   onActiveChange?: (isActive: boolean) => void;
 }
@@ -33,10 +33,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const {
     state,
-    transcriptionStage,
     durationSeconds,
     isApproachingLimit,
     amplitude,
+    finalTranscript,
+    interimTranscript,
     errorMessage,
     startRecording,
     lockRecording,
@@ -45,10 +46,17 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     cancelRecording,
     finishRecording,
     resetError,
-  } = useVoiceRecorder({
+  } = useSpeechInput({
     languageHint: language,
+    messages: {
+      unsupported: t.voiceNote.unsupportedBrowser,
+      permissionDenied: t.voiceNote.permissionDenied,
+      noMicrophone: t.voiceNote.noMicrophone,
+      network: t.voiceNote.networkError,
+      failed: t.voiceNote.recognitionFailed,
+    },
     onTranscriptReady,
-    onError: (err) => console.warn("Voice recording error:", err),
+    onError: (err) => console.warn("Voice typing error:", err),
   });
 
   // Notify parent component (Dashboard) when voice recording becomes active or idle
@@ -76,7 +84,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // Unified Pointer Event Handlers for Press-and-Hold
   // ---------------------------------------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (disabled || state === "transcribing" || state === "locked" || state === "paused") return;
+    if (disabled || state === "finalizing" || state === "locked" || state === "paused") return;
     if (e.button !== 0) return; // Primary pointer button only
 
     try {
@@ -210,15 +218,33 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     return bars;
   };
 
+  const renderLiveTranscript = () => {
+    if (!finalTranscript && !interimTranscript) return null;
+    return (
+      <div
+        className="basis-full w-full min-w-0 h-5 overflow-hidden text-ellipsis whitespace-nowrap px-2 pb-1 text-start text-xs leading-5 text-slate-700 dark:text-slate-200"
+        dir={language === "ur" ? "rtl" : "ltr"}
+        aria-live="polite"
+      >
+        {finalTranscript && <span>{finalTranscript}</span>}
+        {interimTranscript && (
+          <span className="text-slate-400 dark:text-slate-500">
+            {finalTranscript ? " " : ""}{interimTranscript}
+          </span>
+        )}
+      </div>
+    );
+  };
+
   // ---------------------------------------------------------------------------
   // 1. ERROR STATE (In-composer row, preserving typed draft)
   // ---------------------------------------------------------------------------
   if (state === "error") {
     return (
-      <div className="w-full min-w-0 flex items-center justify-between gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
-        <div className="min-w-0 flex items-start gap-2">
+      <div className="w-full min-w-0 flex flex-nowrap items-center justify-between gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
+        <div className="min-w-0 flex items-center gap-1.5">
           <span className="shrink-0 text-sm">⚠️</span>
-          <span className="min-w-0 font-medium leading-snug break-words">{errorMessage || t.voiceNote?.uploadFailed || "Voice upload couldn't start"}</span>
+          <span className="min-w-0 truncate whitespace-nowrap font-medium" title={errorMessage || t.voiceNote.recognitionFailed}>{errorMessage || t.voiceNote.recognitionFailed}</span>
         </div>
         <div className="shrink-0 flex items-center gap-1">
           <button
@@ -242,24 +268,16 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   }
 
   // ---------------------------------------------------------------------------
-  // 2. TRANSCRIBING & UPLOADING FLOW (Seamless surface transition)
+  // 2. FINALIZING FLOW (Seamless surface transition)
   // ---------------------------------------------------------------------------
-  if (state === "transcribing") {
-    const isUploading = transcriptionStage === "uploading";
+  if (state === "finalizing") {
     return (
-      <div className="w-full flex items-center justify-between gap-3 px-3.5 py-2 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/50 rounded-xl animate-pulse select-none">
+      <div className="w-full min-w-0 flex items-center justify-between gap-2 px-3 py-2 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/50 rounded-xl animate-pulse select-none">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="text-base flex-shrink-0">✨</span>
-          <div className="flex flex-col truncate">
-            <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 truncate">
-              {isUploading
-                ? (t.voiceNote?.uploading || "Uploading securely...")
-                : (t.voiceNote?.transcribingVoice || "Transcribing your voice…")}
-            </span>
-            <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 font-normal truncate">
-              {t.voiceNote?.understandingLanguages || "Understanding Urdu / Roman Urdu / English"}
-            </span>
-          </div>
+          <span className="min-w-0 truncate whitespace-nowrap text-xs font-semibold text-blue-700 dark:text-blue-300">
+            {t.voiceNote.finalizing}
+          </span>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
@@ -277,7 +295,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   if (state === "locked" || state === "paused") {
     return (
       <div
-        className="w-full min-w-0 flex items-center justify-between gap-1 px-1 min-[360px]:px-2 sm:px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
+        className="w-full min-w-0 flex flex-wrap items-center justify-between gap-1 px-1 min-[360px]:px-2 sm:px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
         dir="ltr"
       >
         {/* Left: Indicator, Timer, Waveform */}
@@ -297,8 +315,9 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               {formatTime(durationSeconds)}
             </span>
             {isApproachingLimit && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse">
-                {t.voiceNote?.approachingLimit || "15m limit"}
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse" title={t.voiceNote?.approachingLimit || "15m limit"}>
+                <span className="sm:hidden">15m</span>
+                <span className="hidden sm:inline">{t.voiceNote?.approachingLimit || "15m limit"}</span>
               </span>
             )}
           </div>
@@ -368,6 +387,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             </svg>
           </button>
         </div>
+        {renderLiveTranscript()}
       </div>
     );
   }
@@ -385,7 +405,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     return (
       <div
-        className="w-full min-w-0 flex items-center justify-between px-1.5 min-[360px]:px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
+        className="w-full min-w-0 flex flex-wrap items-center justify-between px-1.5 min-[360px]:px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
         dir="ltr"
       >
         {/* LEFT SECTION: 🔴 Red pulsing dot & Timer */}
@@ -398,8 +418,9 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             {formatTime(durationSeconds)}
           </span>
           {isApproachingLimit && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse">
-              {t.voiceNote?.approachingLimit || "15m limit"}
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse" title={t.voiceNote?.approachingLimit || "15m limit"}>
+              <span className="sm:hidden">15m</span>
+              <span className="hidden sm:inline">{t.voiceNote?.approachingLimit || "15m limit"}</span>
             </span>
           )}
         </div>
@@ -429,11 +450,13 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               {isNearCancel ? "🗑️" : "←"}
             </span>
             <span
-              className={`hidden min-[360px]:inline text-[11px] sm:text-xs font-medium whitespace-nowrap transition-colors duration-100 ${
+              className={`text-[11px] sm:text-xs font-medium whitespace-nowrap transition-colors duration-100 ${
                 isNearCancel ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-500 dark:text-slate-400"
               }`}
+              title={t.voiceNote?.slideToCancel || "Slide left to cancel"}
             >
-              {t.voiceNote?.slideToCancel || "Slide left to cancel"}
+              <span className="sm:hidden">{t.voiceNote.cancelShort}</span>
+              <span className="hidden sm:inline">{t.voiceNote?.slideToCancel || "Slide left to cancel"}</span>
             </span>
           </div>
         </div>
@@ -452,8 +475,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               opacity: Math.max(0.6, lockRatio),
             }}
           >
-            <span>🔒</span>
-            <span>↑ {t.voiceNote?.slideUpToLock || "Lock"}</span>
+            <span aria-label={t.voiceNote?.slideUpToLock || "Lock"} title={t.voiceNote?.slideUpToLock || "Lock"}>↑ 🔒</span>
           </div>
 
           {/* Held Mic Button (Finger Anchor with Pointer Capture) */}
@@ -481,6 +503,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             </svg>
           </button>
         </div>
+        {renderLiveTranscript()}
       </div>
     );
   }
