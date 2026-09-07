@@ -192,8 +192,8 @@ export default function MeetingCanvas({
       {/* Panel */}
       <div className="relative w-full sm:w-[92vw] md:w-[680px] lg:w-[820px] xl:w-[900px] h-full bg-white dark:bg-[#0a0d18] shadow-2xl flex flex-col border-l border-slate-200/80 dark:border-white/[0.06] animate-slide-left">
         {/* ── Header ── */}
-        <div className="flex-shrink-0 px-4 sm:px-6 py-3.5 border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
+        <div className="flex-shrink-0 px-3 sm:px-6 py-3.5 border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-1.5 flex-shrink-0">
               <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
             </div>
@@ -203,7 +203,7 @@ export default function MeetingCanvas({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             {/* Live progress pill */}
             {isProcessing ? (
               <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-full ring-1 ring-blue-500/20">
@@ -299,25 +299,25 @@ export default function MeetingCanvas({
 
         {/* Localized Share Error Banner */}
         {shareError && (
-          <div className="mx-4 mt-2 px-3.5 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center justify-between animate-fade-in">
-            <div className="flex items-center gap-2">
+          <div className="mx-3 sm:mx-4 mt-2 px-3.5 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center justify-between gap-2 animate-fade-in">
+            <div className="min-w-0 flex items-start gap-2">
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span>{shareError}</span>
+              <span className="min-w-0 break-words">{shareError}</span>
             </div>
             <button onClick={() => setShareError(null)} className="p-1 hover:opacity-75">✕</button>
           </div>
         )}
 
         {/* ── Tabs ── */}
-        <div className="flex-shrink-0 px-4 sm:px-6 flex gap-1 border-b border-slate-200 dark:border-white/[0.06] bg-white/50 dark:bg-transparent">
+        <div className="flex-shrink-0 px-3 sm:px-6 flex gap-1 border-b border-slate-200 dark:border-white/[0.06] bg-white/50 dark:bg-transparent">
           {(["deliberation", "report"] as const).map((tTab) => (
             <button
               key={tTab}
               onClick={() => setTab(tTab)}
               disabled={tTab === "report" && !hasReport}
-              className={`relative py-3 px-3 text-xs font-semibold tracking-wide transition-colors capitalize
+              className={`relative flex-1 min-w-0 sm:flex-none py-3 px-1.5 sm:px-3 text-[11px] sm:text-xs font-semibold leading-snug tracking-wide transition-colors capitalize
                 ${tab === tTab
                   ? "text-blue-600 dark:text-blue-400"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -353,7 +353,7 @@ export default function MeetingCanvas({
       {/* ── Guest Confirmation Modal ── */}
       {isGuestConfirmOpen && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
             <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xl">
               🔗
             </div>
@@ -368,17 +368,17 @@ export default function MeetingCanvas({
                 {t.share.anyoneWithLink}
               </p>
             </div>
-            <div className="flex justify-end gap-2.5 pt-2">
+            <div className="flex flex-col-reverse min-[380px]:flex-row justify-end gap-2.5 pt-2">
               <button
                 onClick={() => setIsGuestConfirmOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+                className="px-4 py-2 rounded-xl text-center text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
               >
                 {t.common.cancel}
               </button>
               <button
                 onClick={executeShare}
                 disabled={isSharing}
-                className="px-4 py-2 rounded-xl text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow transition-all"
+                className="px-4 py-2 rounded-xl text-center text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow transition-all"
               >
                 {isSharing ? t.common.loading : t.share.guestConfirmButton}
               </button>
@@ -390,7 +390,7 @@ export default function MeetingCanvas({
       {/* ── Share Link Success Modal ── */}
       {isShareModalOpen && shareUrl && (
         <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-lg">✨</span>
@@ -410,12 +410,12 @@ export default function MeetingCanvas({
               {t.share.anyoneWithLink}
             </p>
 
-            <div className="flex items-center gap-2 p-2 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10">
+            <div className="flex flex-col min-[380px]:flex-row min-[380px]:items-center gap-2 p-2 rounded-xl bg-slate-100 dark:bg-white/[0.04] border border-slate-200 dark:border-white/10">
               <input
                 type="text"
                 readOnly
                 value={shareUrl}
-                className="flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-200 focus:outline-none truncate px-1 select-all"
+                className="w-full min-w-0 flex-1 bg-transparent text-xs text-slate-800 dark:text-slate-200 focus:outline-none truncate px-1 select-all"
               />
               <button
                 onClick={() => {
@@ -423,7 +423,7 @@ export default function MeetingCanvas({
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2500);
                 }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   copied
                     ? "bg-emerald-600 text-white"
                     : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
@@ -480,7 +480,7 @@ export default function MeetingCanvas({
 
       {/* Localized Error Toast if PDF export fails */}
       {exportError && (
-        <div className="fixed bottom-6 right-6 z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
+        <div className="fixed bottom-3 left-3 right-3 sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-sm z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
           <span className="text-base">⚠️</span>
           <span>{exportError}</span>
         </div>

@@ -263,8 +263,8 @@ export default function MashwaraResultView({
 
       {/* Progress bar (only for interactive sessions with processing) */}
       {!isExportMode && totalAgents > 0 && isProcessing && (
-        <div className="flex items-center gap-3 py-2">
-          <span className="text-[11px] text-slate-500 whitespace-nowrap">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3 py-2">
+          <span className="min-w-0 text-[10px] sm:text-[11px] text-slate-500 leading-tight">
             {doneCount}/{totalAgents} {t.canvas.agentsComplete}
           </span>
           <div className="flex-1 h-1 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -273,7 +273,7 @@ export default function MashwaraResultView({
               style={{ width: `${totalAgents ? (doneCount / totalAgents) * 100 : 0}%` }}
             />
           </div>
-          <span className="text-[11px] text-blue-500 font-medium whitespace-nowrap">{t.canvas.inProgress}</span>
+          <span className="shrink-0 text-[10px] sm:text-[11px] text-blue-500 font-medium whitespace-nowrap">{t.canvas.inProgress}</span>
         </div>
       )}
 
@@ -351,12 +351,12 @@ export default function MashwaraResultView({
       {!isExportMode && hasReport && doneCount === totalAgents && totalAgents > 0 && onTabChange && (
         <div
           onClick={() => onTabChange("report")}
-          className="mt-2 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
+          className="mt-2 min-w-0 flex items-center justify-center gap-2 py-3 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
         >
           <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
-          <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">{t.canvas.viewReportReady}</span>
+          <span className="min-w-0 text-center text-xs font-semibold leading-snug text-blue-600 dark:text-blue-400">{t.canvas.viewReportReady}</span>
           <svg className="w-3.5 h-3.5 text-blue-500 rtl:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
@@ -430,13 +430,13 @@ export default function MashwaraResultView({
                   return (
                     <div
                       key={agent}
-                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${vt.pill} text-[11px] font-semibold`}
+                      className={`flex max-w-full min-w-0 items-center gap-1 px-2 sm:px-2.5 py-1 rounded-lg ring-1 bg-white/50 dark:bg-white/[0.04] ${vt.pill} text-[10px] sm:text-[11px] font-semibold`}
                     >
-                      <span>{vt.icon}</span>
-                      <span className="text-slate-700 dark:text-slate-300">
+                      <span className="shrink-0">{vt.icon}</span>
+                      <span className="min-w-0 truncate text-slate-700 dark:text-slate-300">
                         {roles.find((r) => r.key === agent)?.name || t.agents[agent]?.title || agent}
                       </span>
-                      <span className="text-slate-400 font-normal">{v.confidence}%</span>
+                      <span className="shrink-0 text-slate-400 font-normal">{v.confidence}%</span>
                     </div>
                   );
                 })}
@@ -460,12 +460,12 @@ export default function MashwaraResultView({
                 {evSources.map((src: any, idx: number) => (
                   <span
                     key={idx}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm"
+                    className="inline-flex max-w-full min-w-0 items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm"
                   >
                     <span className="text-xs">📄</span>
-                    <span className="max-w-[200px] truncate">{src.filename}</span>
+                    <span className="min-w-0 max-w-[140px] sm:max-w-[200px] truncate">{src.filename}</span>
                     {src.size_bytes && (
-                      <span className="text-[10px] text-slate-400">
+                      <span className="shrink-0 text-[10px] text-slate-400">
                         ({(src.size_bytes / 1024 < 1024 ? `${(src.size_bytes / 1024).toFixed(0)} KB` : `${(src.size_bytes / (1024 * 1024)).toFixed(1)} MB`)})
                       </span>
                     )}
@@ -612,15 +612,15 @@ export default function MashwaraResultView({
         {/* Web Sources / Cited Evidence (Interactive Mode) */}
         {report?.web_sources && report.web_sources.length > 0 && (
           <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] p-4 sm:p-5 space-y-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex items-center gap-2">
                 <span className="text-sm">🌐</span>
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">
                   {t.webSearch?.sourcesTitle || (currentLanguage === "ur" ? "تحقیقی ذرائع" : "Web Sources")}
                 </p>
               </div>
               {report.searched_at && (
-                <span className="text-[10px] text-slate-400">
+                <span className="text-[10px] text-slate-400 leading-snug">
                   {t.webSearch?.researchedOn || "Researched"}: {report.searched_at.slice(0, 10)}
                 </span>
               )}
@@ -664,7 +664,7 @@ export default function MashwaraResultView({
 
                 return (
                   <details key={role.key} className="group">
-                    <summary className="flex items-center gap-3 px-4 sm:px-5 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors list-none">
+                    <summary className="flex min-w-0 items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-white/[0.03] transition-colors list-none">
                       <span className={`w-7 h-7 rounded-md bg-gradient-to-br ${role.color} flex items-center justify-center text-xs flex-shrink-0`}>
                         {role.icon}
                       </span>
@@ -677,7 +677,7 @@ export default function MashwaraResultView({
                         </span>
                       </div>
                       {vote && (
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`}>
+                        <span className={`max-w-[104px] sm:max-w-none truncate whitespace-nowrap text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 ${vt.pill}`}>
                           {vt.icon} {vt.label} · {vote.confidence}%
                         </span>
                       )}
@@ -1171,7 +1171,7 @@ export default function MashwaraResultView({
   // Interactive Mode: Tab-based navigation
   // ───────────────────────────────────────────────────────────────────────────
   return (
-    <div className="p-4 sm:p-6 pb-24">
+    <div className="min-w-0 p-3 min-[360px]:p-4 sm:p-6 pb-24">
       {activeTab === "deliberation" && renderDeliberationSection()}
       {activeTab === "report" && renderReportSection()}
     </div>

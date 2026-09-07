@@ -151,7 +151,7 @@ export default function SharedMashwaraPage() {
   // Loading State
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#070913] flex flex-col items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-slate-50 dark:bg-[#070913] flex flex-col items-center justify-center p-4">
         <div className="w-12 h-12 rounded-2xl bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-2 mb-4 animate-pulse">
           <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
         </div>
@@ -167,7 +167,7 @@ export default function SharedMashwaraPage() {
     return (
       <div
         dir={isUrdu ? "rtl" : "ltr"}
-        className={`min-h-screen bg-slate-50 dark:bg-[#070913] flex flex-col items-center justify-center p-4 text-center ${isUrdu ? "lang-ur" : ""}`}
+        className={`min-h-[100dvh] min-w-0 bg-slate-50 dark:bg-[#070913] flex flex-col items-center justify-center p-4 text-center ${isUrdu ? "lang-ur" : ""}`}
       >
         <div
           className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl mb-4 border ${
@@ -184,18 +184,18 @@ export default function SharedMashwaraPage() {
         <p className="text-xs text-slate-500 max-w-sm mb-6">
           {isNotFound ? t.share.sharedNotFoundDesc : (t.share.sharedLoadErrorDesc || "A temporary connection issue occurred. Please try again.")}
         </p>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-col min-[360px]:flex-row min-[360px]:items-center gap-2 min-[360px]:gap-3">
           {!isNotFound && (
             <button
               onClick={fetchData}
-              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-sm transition-all"
+              className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold text-center whitespace-nowrap shadow-sm transition-all"
             >
               {t.share.retry || "Retry"}
             </button>
           )}
           <Link
             to="/"
-            className={`px-5 py-2.5 rounded-xl text-xs font-semibold shadow-sm transition-all ${
+            className={`px-5 py-2.5 rounded-xl text-xs font-semibold text-center whitespace-nowrap shadow-sm transition-all ${
               isNotFound
                 ? "bg-blue-600 hover:bg-blue-700 text-white"
                 : "bg-white dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/10"
@@ -213,7 +213,7 @@ export default function SharedMashwaraPage() {
   return (
     <div
       dir={isUrdu ? "rtl" : "ltr"}
-      className={`min-h-screen bg-slate-50 dark:bg-[#070913] text-slate-900 dark:text-white ${isUrdu ? "lang-ur" : ""}`}
+      className={`min-h-[100dvh] min-w-0 overflow-x-hidden bg-slate-50 dark:bg-[#070913] text-slate-900 dark:text-white ${isUrdu ? "lang-ur" : ""}`}
     >
       {/* Machine-readable canonical API link for crawlers */}
       <link rel="alternate" type="application/json" href={`/api/shared-mashwaras/${data.share_id}`} />
@@ -227,8 +227,8 @@ export default function SharedMashwaraPage() {
       )}
 
       {/* ── Top Navigation Bar (Hidden during Print) ── */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#0a0d18]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/10 px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4 print:hidden">
-        <Link to="/" className="flex items-center gap-3 group">
+      <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#0a0d18]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/10 px-3 sm:px-8 py-3.5 flex items-center justify-between gap-2 sm:gap-4 print:hidden">
+        <Link to="/" className="min-w-0 flex items-center gap-2 sm:gap-3 group">
           <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-1.5 flex-shrink-0 group-hover:scale-105 transition-transform">
             <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
           </div>
@@ -238,7 +238,7 @@ export default function SharedMashwaraPage() {
         </Link>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-2">
+        <div className="shrink-0 flex items-center gap-1.5 sm:gap-2">
           {/* Copy Link Button */}
           <button
             onClick={handleCopyLink}
@@ -311,9 +311,9 @@ export default function SharedMashwaraPage() {
       </header>
 
       {/* ── Main Interactive Container (Hidden during Print) ── */}
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 print:hidden">
+      <main className="min-w-0 max-w-4xl mx-auto px-3 sm:px-6 py-5 sm:py-6 print:hidden">
         {/* Privacy notice banner */}
-        <div className="mb-4 px-4 py-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs flex items-center gap-2.5">
+        <div className="mb-4 px-3 sm:px-4 py-2.5 rounded-xl bg-blue-50/60 dark:bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs flex items-start sm:items-center gap-2.5">
           <svg className="w-4 h-4 flex-shrink-0 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
@@ -369,7 +369,7 @@ export default function SharedMashwaraPage() {
         <footer className="mt-12 mb-16 text-center">
           <Link
             to="/"
-            className="inline-flex items-center gap-2.5 px-6 py-3 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-all"
+            className="max-w-full inline-flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white text-xs sm:text-sm font-bold text-center leading-snug shadow-lg shadow-blue-500/20 hover:scale-[1.02] transition-all"
           >
             <span>🏛️</span>
             <span>{t.share.startYourOwn}</span>
@@ -409,7 +409,7 @@ export default function SharedMashwaraPage() {
 
       {/* Localized Error Toast if PDF export fails */}
       {exportError && (
-        <div className="fixed bottom-6 right-6 z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
+        <div className="fixed bottom-3 left-3 right-3 sm:bottom-6 sm:left-auto sm:right-6 sm:max-w-sm z-50 bg-red-600/95 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 text-xs font-bold animate-fade-in border border-red-500 backdrop-blur-md">
           <span className="text-base">⚠️</span>
           <span>{exportError}</span>
         </div>

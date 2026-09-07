@@ -187,13 +187,13 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
         </div>
 
         {/* Footer Navigation Bar */}
-        <div className="p-3.5 sm:p-4 bg-slate-50/80 dark:bg-slate-900/60 border-t border-slate-100 dark:border-white/5 flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="p-3 sm:p-4 bg-slate-50/80 dark:bg-slate-900/60 border-t border-slate-100 dark:border-white/5 grid grid-cols-[auto_1fr_auto] items-center gap-2 sm:gap-3 flex-shrink-0">
           {/* Back Button */}
           <button
             type="button"
             onClick={handlePrev}
             disabled={currentSlide === 0}
-            className={`flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-xl transition-all ${
+            className={`flex items-center gap-1 px-2.5 sm:px-3.5 py-2 text-[11px] sm:text-xs font-semibold whitespace-nowrap rounded-xl transition-all ${
               currentSlide === 0
                 ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
                 : "text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-white/10"
@@ -204,7 +204,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
           </button>
 
           {/* Mobile Progress Dots (Compact 13-dot track) */}
-          <div className="flex sm:hidden items-center gap-1 px-1">
+          <div className="min-w-0 flex sm:hidden items-center justify-center gap-0.5 min-[360px]:gap-1 px-0.5">
             {slides.map((_, i) => (
               <div
                 key={i}
@@ -223,7 +223,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
           <button
             type="button"
             onClick={handleNext}
-            className={`flex items-center gap-2 px-5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
+            className={`flex items-center gap-1 sm:gap-2 px-2.5 min-[360px]:px-3.5 sm:px-5 py-2 text-[11px] sm:text-sm font-bold whitespace-nowrap rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
               isLastSlide
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-500/25"
                 : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900"

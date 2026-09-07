@@ -62,6 +62,19 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !plusButtonRef.current?.contains(target)) {
+        setIsOpen(false);
+        setWebSubOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen]);
+
   const close = () => {
     setIsOpen(false);
     setWebSubOpen(false);

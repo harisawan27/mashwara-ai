@@ -164,13 +164,13 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   // Initial Unloaded Pill
   if (!audioUrl) {
     return (
-      <div className={`mt-3 flex items-center gap-2 ${className}`}>
+      <div className={`mt-3 min-w-0 flex flex-wrap items-center gap-2 ${className}`}>
         <button
           type="button"
           onClick={handleFetchAudio}
           disabled={isLoading}
           aria-label={t.summaryAudio?.listen || "Listen to Summary"}
-          className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
+          className="max-w-full inline-flex items-center gap-2 px-3 sm:px-3.5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
         >
           {isLoading ? (
             <>
@@ -187,7 +187,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
                   <path d="M8 5v14l11-7z" />
                 </svg>
               </div>
-              <span className="font-medium">{t.summaryAudio?.listen || "Listen to Summary"}</span>
+              <span className="min-w-0 font-medium leading-snug">{t.summaryAudio?.listen || "Listen to Summary"}</span>
               <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-blue-600/10 dark:bg-blue-400/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                 {t.summaryAudio?.voiceLabel || "Executive Voice"}
               </span>

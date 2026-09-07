@@ -74,8 +74,20 @@ export default function Dashboard() {
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>(routeSessionId);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(() => window.matchMedia("(min-width: 768px)").matches);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const desktopQuery = window.matchMedia("(min-width: 768px)");
+    const handleViewportChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        setIsSidebarOpen(false);
+      }
+    };
+
+    desktopQuery.addEventListener("change", handleViewportChange);
+    return () => desktopQuery.removeEventListener("change", handleViewportChange);
+  }, []);
   
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editInput, setEditInput] = useState("");
@@ -759,7 +771,7 @@ export default function Dashboard() {
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
       />
 
-      <div className="flex-1 flex flex-col relative z-10 h-screen w-full md:w-auto">
+      <div className="flex-1 min-w-0 flex flex-col relative z-10 h-[100dvh] w-full md:w-auto">
         <nav className="relative h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between bg-slate-50/90 dark:bg-[#06080f]/90 backdrop-blur-xl shrink-0">
           <div className="flex items-center z-10">
             {!isSidebarOpen && (
@@ -787,8 +799,8 @@ export default function Dashboard() {
           <div className="w-8 z-10" aria-hidden="true" />
         </nav>
 
-        <main className={`flex-1 ${messages.length === 0 ? "overflow-hidden flex flex-col" : "overflow-y-auto"} p-4 sm:p-6 custom-scrollbar relative`}>
-          <div className={`max-w-3xl mx-auto w-full ${messages.length === 0 ? "flex-1 flex flex-col min-h-0 justify-center pb-28 sm:pb-32" : "space-y-6 pb-40"}`}>
+        <main className={`flex-1 min-w-0 overflow-y-auto ${messages.length === 0 ? "flex flex-col" : ""} p-3 sm:p-6 custom-scrollbar relative`}>
+          <div className={`max-w-3xl mx-auto w-full min-w-0 ${messages.length === 0 ? "flex-1 flex flex-col justify-start sm:justify-center pt-1 sm:pt-0 pb-40 sm:pb-32" : "space-y-6 pb-40"}`}>
             {/* Guest Banner */}
             {!token && (
               <div className="shrink-0 mb-3 p-3.5 sm:p-4 rounded-2xl bg-amber-500/[0.08] dark:bg-amber-500/[0.06] border border-amber-500/25 flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-slide-up shadow-sm">
@@ -823,7 +835,7 @@ export default function Dashboard() {
               </div>
             )}
             {messages.length === 0 && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center my-auto animate-fade-in px-4">
+              <div className="flex-1 flex flex-col items-center justify-center text-center sm:my-auto animate-fade-in px-1 min-[360px]:px-3 sm:px-4">
                 <div className="inline-flex w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-white shadow-xl ring-1 ring-slate-900/5 items-center justify-center mb-4 sm:mb-5 p-2.5 sm:p-3">
                   <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain drop-shadow-sm" />
                 </div>
@@ -841,15 +853,15 @@ export default function Dashboard() {
                 {!hasSeenTutorial && (
                   <button 
                     onClick={() => setIsTutorialOpen(true)}
-                    className="mb-6 mx-auto flex items-center gap-3 px-5 py-2.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-500/20 transition-all group font-medium text-xs sm:text-sm"
+                    className="mb-6 mx-auto max-w-full flex items-center justify-center gap-2 sm:gap-3 px-3 sm:px-5 py-2.5 rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-500/20 border border-blue-500/20 transition-all group font-medium text-[11px] min-[360px]:text-xs sm:text-sm leading-tight"
                   >
-                    <div className="w-7 h-7 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md shadow-blue-500/30 group-hover:scale-110 transition-transform">
+                    <div className="w-6 h-6 sm:w-7 sm:h-7 shrink-0 rounded-full bg-blue-500 text-white flex items-center justify-center shadow-md shadow-blue-500/30 group-hover:scale-110 transition-transform">
                       <svg className="w-3.5 h-3.5 ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
                     </div>
-                    {t.emptyState.tutorialButton}
+                    <span className="min-w-0 whitespace-nowrap">{t.emptyState.tutorialButton}</span>
                   </button>
                 )}
 
@@ -952,14 +964,14 @@ export default function Dashboard() {
                             <div className="mb-2 w-full max-w-xl">
                               <button 
                                 onClick={() => setThinkingExpandedId(thinkingExpandedId === msg.id ? null : msg.id)}
-                                className="flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors bg-slate-100 dark:bg-slate-800/50 px-3 py-1.5 rounded-full"
+                                className="max-w-full min-w-0 flex items-center gap-2 text-xs font-medium text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors bg-slate-100 dark:bg-slate-800/50 px-3 py-1.5 rounded-full"
                               >
                                 <svg className={`w-3.5 h-3.5 transition-transform ${thinkingExpandedId === msg.id ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                                 {isProcessing && index === messages.length - 1 ? (
                                   <span className="flex items-center gap-1">
                                     {t.chat.thinkingStatus}
                                   </span>
-                                ) : t.chat.thoughtProcess}
+                                ) : <span className="min-w-0 truncate whitespace-nowrap">{t.chat.thoughtProcess}</span>}
                               </button>
                               {thinkingExpandedId === msg.id && (
                                 <div className="mt-2 p-3 bg-slate-50 dark:bg-slate-800/30 border border-slate-200 dark:border-white/5 rounded-xl text-xs text-slate-600 dark:text-slate-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto custom-scrollbar">
@@ -1041,7 +1053,7 @@ export default function Dashboard() {
                               setIsCanvasOpen(true);
                             }
                           }}
-                          className={`mt-3 flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-500/20 dark:hover:to-indigo-500/20 border border-blue-200/50 dark:border-blue-500/20 text-blue-700 dark:text-blue-300 text-sm font-medium rounded-xl transition-all shadow-sm ${
+                          className={`mt-3 max-w-full flex items-center gap-2 px-3 sm:px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-500/10 dark:to-indigo-500/10 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-500/20 dark:hover:to-indigo-500/20 border border-blue-200/50 dark:border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs sm:text-sm font-medium whitespace-nowrap rounded-xl transition-all shadow-sm ${
                             isProcessing && index === messages.length - 1 ? 'animate-pulse' : ''
                           }`}
                         >
@@ -1064,7 +1076,7 @@ export default function Dashboard() {
         </main>
 
         {/* Input Command Center */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 bg-gradient-to-t from-slate-50 via-slate-50/90 dark:from-[#06080f] dark:via-[#06080f]/90 to-transparent z-20 pointer-events-none">
+        <div className="absolute bottom-0 left-0 right-0 p-2 min-[360px]:p-3 sm:p-6 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-gradient-to-t from-slate-50 via-slate-50/90 dark:from-[#06080f] dark:via-[#06080f]/90 to-transparent z-20 pointer-events-none">
           <div className="max-w-3xl mx-auto relative pointer-events-auto">
 
             {/* Hidden file inputs — triggered via Plus menu */}
@@ -1209,10 +1221,10 @@ export default function Dashboard() {
                 style={{ minHeight: '56px' }}
               />
 
-              <div className="relative min-h-[44px] flex items-center justify-between px-2 pb-2">
+              <div className="relative min-h-[44px] flex items-center justify-between gap-1 px-1 sm:px-2 pb-2">
 
                 {/* LEFT: + (Plus) and Convene toggle — hidden during voice */}
-                <div className={`flex items-center gap-2 relative transition-opacity duration-150 ${isVoiceActive ? 'hidden' : 'flex'}`}>
+                <div className={`min-w-0 flex items-center gap-1 sm:gap-2 relative transition-opacity duration-150 ${isVoiceActive ? 'hidden' : 'flex'}`}>
 
                   {/* Plus button — replaces paperclip + web dropdown */}
                   <ComposerPlusMenu
@@ -1227,17 +1239,17 @@ export default function Dashboard() {
                   <button
                     type="button"
                     onClick={() => setIsConveneBoardSelected(!isConveneBoardSelected)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${isConveneBoardSelected ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 ring-1 ring-blue-500/50' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                    className={`flex min-w-0 items-center gap-1 px-2 sm:px-3 py-1.5 rounded-lg text-[10px] sm:text-xs font-medium whitespace-nowrap transition-all ${isConveneBoardSelected ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 ring-1 ring-blue-500/50' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                   >
                     <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
                     </svg>
-                    {t.chat.conveneToggle}
+                    <span className="hidden min-[360px]:inline">{t.chat.conveneToggle}</span>
                   </button>
                 </div>
 
                 {/* RIGHT: Template selector + Mic + Send/Stop */}
-                <div className={`flex items-center gap-2 pr-1 ${isVoiceActive ? 'w-full' : ''}`}>
+                <div className={`flex shrink-0 items-center gap-1 sm:gap-2 sm:pr-1 ${isVoiceActive ? 'w-full' : ''}`}>
 
                   {/* Template / Model selector — right side, before mic */}
                   {!isVoiceActive && (
@@ -1245,9 +1257,11 @@ export default function Dashboard() {
                       <button
                         type="button"
                         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                        className="flex items-center gap-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                        className="flex items-center gap-1 sm:gap-2 text-[10px] sm:text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 sm:px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
                       >
-                        {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
+                        <span className="max-w-[48px] min-[360px]:max-w-[76px] sm:max-w-none truncate whitespace-nowrap">
+                          {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
+                        </span>
                         <svg className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                         </svg>

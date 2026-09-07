@@ -75,7 +75,7 @@ export default function AgentStream({
   return (
     <div className={`
       rounded-xl border overflow-hidden transition-all duration-300 bg-white dark:bg-[#0d1020]
-      ${isModerator ? "col-span-2 border-blue-200 dark:border-blue-500/20" : ""}
+      ${isModerator ? "sm:col-span-2 border-blue-200 dark:border-blue-500/20" : ""}
       ${isActive
         ? "border-blue-200 dark:border-blue-500/25 shadow-sm shadow-blue-500/10"
         : isWaiting
@@ -86,7 +86,7 @@ export default function AgentStream({
       <button
         type="button"
         onClick={() => setIsExpanded(v => !v)}
-        className="w-full flex items-start gap-3 px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors text-start cursor-pointer"
+        className="w-full min-w-0 flex items-start gap-2 sm:gap-3 px-3 sm:px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors text-start cursor-pointer"
       >
         {/* Avatar */}
         <div className={`

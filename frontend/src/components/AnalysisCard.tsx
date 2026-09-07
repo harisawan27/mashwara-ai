@@ -29,18 +29,18 @@ export default function AnalysisCard({ role, agentInfo, analysis, delay }: Analy
       {/* Header (click to toggle) */}
       <button
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center justify-between p-5 hover:bg-white/[0.02] transition-colors duration-200"
+        className="w-full min-w-0 flex items-center justify-between gap-2 p-4 sm:p-5 hover:bg-white/[0.02] transition-colors duration-200"
         id={`analysis-${role.toLowerCase()}`}
       >
-        <div className="flex items-center gap-3">
+        <div className="min-w-0 flex items-center gap-3">
           <div
             className={`w-10 h-10 rounded-lg bg-gradient-to-br ${agentInfo.color} flex items-center justify-center text-xl`}
           >
             {agentInfo.icon}
           </div>
-          <div className="text-start">
-            <p className="font-semibold text-white text-sm">{roleName}</p>
-            <p className="text-xs text-slate-500">{roleTitle}</p>
+          <div className="min-w-0 text-start">
+            <p className="truncate font-semibold text-white text-sm">{roleName}</p>
+            <p className="truncate text-xs text-slate-500">{roleTitle}</p>
           </div>
         </div>
 

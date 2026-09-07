@@ -128,9 +128,9 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
       <div className={`fixed md:relative inset-y-0 h-[100dvh] bg-slate-50/90 dark:bg-[#06080f]/90 backdrop-blur-xl flex flex-col flex-shrink-0 z-40 transition-all duration-300 ease-in-out overflow-hidden ${
         isRTL ? 'right-0 md:right-auto border-l md:border-l-0 md:border-r' : 'left-0 border-r'
       } border-slate-200 dark:border-white/5 ${
-        isOpen ? 'w-64 translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 !border-0'
+        isOpen ? 'w-64 max-w-[calc(100vw-1rem)] translate-x-0' : 'w-0 -translate-x-full md:translate-x-0 !border-0'
       }`}>
-        <div className="w-64 h-full flex flex-col">
+        <div className="w-64 max-w-[calc(100vw-1rem)] h-full flex flex-col">
         {/* Header */}
         <div className="h-16 px-4 border-b border-slate-200 dark:border-white/5 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">

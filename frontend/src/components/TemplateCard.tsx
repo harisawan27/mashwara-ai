@@ -58,7 +58,7 @@ export default function TemplateCard({ templateType, metadata, index }: Template
       id={`template-card-${templateType.toLowerCase()}`}
       onClick={() => navigate(`/meeting/${templateType}`)}
       className={`
-        group glass-elevated w-full text-start rounded-2xl p-6
+        group glass-elevated w-full text-start rounded-2xl p-4 sm:p-6
         transition-all duration-300 ease-out cursor-pointer
         hover:translate-y-[-2px] ${accent.border} ${accent.glow}
         animate-slide-up opacity-0
@@ -88,11 +88,11 @@ export default function TemplateCard({ templateType, metadata, index }: Template
       </p>
 
       {/* Example pill */}
-      <div className="flex items-center gap-2">
+      <div className="min-w-0 flex flex-wrap items-center gap-2">
         <span className="text-[10px] uppercase tracking-wider text-slate-600 font-medium">
           {isRTL ? "مثال" : "Example"}
         </span>
-        <span className={`text-xs ${accent.text} opacity-70`}>"{metadata.exampleDecision}"</span>
+        <span className={`min-w-0 text-xs leading-snug break-words ${accent.text} opacity-70`}>"{metadata.exampleDecision}"</span>
       </div>
     </button>
   );

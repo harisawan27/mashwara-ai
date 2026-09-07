@@ -85,10 +85,10 @@ export default function ReportBanner({
       className={`
         glass-elevated rounded-2xl border ${style.border} ${style.glow}
         bg-gradient-to-br ${style.bg}
-        p-8 animate-scale-in
+        p-5 sm:p-8 animate-scale-in
       `}
     >
-      <div className="flex flex-col md:flex-row items-center gap-8">
+      <div className="min-w-0 flex flex-col md:flex-row items-center gap-5 sm:gap-8">
         {/* Circular confidence indicator */}
         <div className="relative flex-shrink-0">
           <svg width="130" height="130" className="-rotate-90">
@@ -128,7 +128,7 @@ export default function ReportBanner({
         </div>
 
         {/* Decision text */}
-        <div className="text-center md:text-start flex-1">
+        <div className="min-w-0 text-center md:text-start flex-1">
           <p className="text-xs text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1">
             {templateName} • {t.canvas.boardDecision}
           </p>
@@ -137,7 +137,7 @@ export default function ReportBanner({
           </h1>
           <div
             className={`
-              inline-flex items-center gap-2 px-5 py-2.5 rounded-full
+              max-w-full inline-flex items-center justify-center gap-2 px-4 sm:px-5 py-2.5 rounded-full text-center leading-snug
               text-lg font-bold ${style.text} bg-white/50 dark:bg-white/5 border ${style.border} shadow-sm dark:shadow-none
             `}
           >

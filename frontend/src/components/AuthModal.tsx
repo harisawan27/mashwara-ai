@@ -26,6 +26,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
   const { t, isRTL, language } = useTranslation();
 
   const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+  const authCardRef = useRef<HTMLDivElement>(null);
   const gsiInitializedRef = useRef(false);
 
   // Close on Escape key
@@ -105,6 +106,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
         // Check if dark theme is currently active
         const isDark = document.documentElement.classList.contains("dark");
 
+        const containerWidth = Math.floor(googleBtnContainerRef.current.getBoundingClientRect().width);
         window.google.accounts.id.renderButton(googleBtnContainerRef.current, {
           type: "standard",
           theme: isDark ? "filled_black" : "outline",
@@ -112,7 +114,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           text: isLogin ? "signin_with" : "signup_with",
           shape: "rectangular",
           logo_alignment: "left",
-          width: 380,
+          width: Math.max(200, Math.min(380, containerWidth || 380)),
         });
         return true;
       } catch (err) {
@@ -141,6 +143,10 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
         clearTimeout(timeout);
       };
     }
+  }, [isOpen, isLogin]);
+
+  useEffect(() => {
+    if (isOpen) authCardRef.current?.scrollTo({ top: 0 });
   }, [isOpen, isLogin]);
 
   if (!isOpen) return null;
@@ -194,7 +200,8 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
 
       {/* Auth Card */}
       <div 
-        className="relative glass-elevated rounded-3xl w-full max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto custom-scrollbar p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
+        ref={authCardRef}
+        className="relative glass-elevated rounded-3xl w-full min-w-0 max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overflow-x-hidden custom-scrollbar p-4 min-[360px]:p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dismiss Button */}

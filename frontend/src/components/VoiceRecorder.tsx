@@ -215,16 +215,16 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   if (state === "error") {
     return (
-      <div className="w-full flex items-center justify-between gap-3 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
-        <div className="flex items-center gap-2">
-          <span className="text-sm">⚠️</span>
-          <span className="font-medium">{errorMessage || t.voiceNote?.uploadFailed || "Voice upload couldn't start"}</span>
+      <div className="w-full min-w-0 flex items-center justify-between gap-2 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
+        <div className="min-w-0 flex items-start gap-2">
+          <span className="shrink-0 text-sm">⚠️</span>
+          <span className="min-w-0 font-medium leading-snug break-words">{errorMessage || t.voiceNote?.uploadFailed || "Voice upload couldn't start"}</span>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="shrink-0 flex items-center gap-1">
           <button
             type="button"
             onClick={resetError}
-            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium text-xs shadow-sm transition-colors"
+            className="px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium text-[11px] sm:text-xs whitespace-nowrap shadow-sm transition-colors"
           >
             {t.voiceNote?.tryAgain || "Try again"}
           </button>
@@ -277,11 +277,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   if (state === "locked" || state === "paused") {
     return (
       <div
-        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
+        className="w-full min-w-0 flex items-center justify-between gap-1 px-1 min-[360px]:px-2 sm:px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
         dir="ltr"
       >
         {/* Left: Indicator, Timer, Waveform */}
-        <div className="flex items-center gap-2.5 min-w-0">
+        <div className="min-w-0 flex items-center gap-1.5 sm:gap-2.5 overflow-hidden">
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className="relative flex h-2.5 w-2.5">
               {state === "paused" ? (
@@ -303,18 +303,18 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             )}
           </div>
 
-          <div className="flex items-center justify-center gap-0.5 sm:gap-1 h-6 px-1 overflow-hidden">
+          <div className="min-w-0 flex items-center justify-center gap-0.5 sm:gap-1 h-6 px-0.5 sm:px-1 overflow-hidden">
             {renderWaveform(16)}
           </div>
         </div>
 
         {/* Right: Touch Target Controls (Min 44x44 touch hit areas) */}
-        <div className="flex items-center gap-1 flex-shrink-0">
+        <div className="flex items-center gap-0.5 sm:gap-1 flex-shrink-0">
           {/* Delete / Cancel Button */}
           <button
             type="button"
             onClick={cancelRecording}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+            className="w-10 h-10 min-w-[40px] min-h-[40px] min-[360px]:w-11 min-[360px]:h-11 min-[360px]:min-w-[44px] min-[360px]:min-h-[44px] rounded-full flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
             title={t.voiceNote?.deleteTooltip || "Delete recording"}
             aria-label="Delete recording"
           >
@@ -333,7 +333,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <button
               type="button"
               onClick={resumeRecording}
-              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              className="w-10 h-10 min-w-[40px] min-h-[40px] min-[360px]:w-11 min-[360px]:h-11 min-[360px]:min-w-[44px] min-[360px]:min-h-[44px] rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
               title={t.voiceNote?.resumeTooltip || "Resume recording"}
               aria-label="Resume recording"
             >
@@ -345,7 +345,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <button
               type="button"
               onClick={pauseRecording}
-              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              className="w-10 h-10 min-w-[40px] min-h-[40px] min-[360px]:w-11 min-[360px]:h-11 min-[360px]:min-w-[44px] min-[360px]:min-h-[44px] rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
               title={t.voiceNote?.pauseTooltip || "Pause recording"}
               aria-label="Pause recording"
             >
@@ -359,7 +359,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           <button
             type="button"
             onClick={finishRecording}
-            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md hover:scale-105 transition-all"
+            className="w-10 h-10 min-w-[40px] min-h-[40px] min-[360px]:w-11 min-[360px]:h-11 min-[360px]:min-w-[44px] min-[360px]:min-h-[44px] rounded-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md hover:scale-105 transition-all"
             title={t.voiceNote?.finishTooltip || "Finish and transcribe"}
             aria-label="Finish and transcribe"
           >
@@ -385,7 +385,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
     return (
       <div
-        className="w-full flex items-center justify-between px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
+        className="w-full min-w-0 flex items-center justify-between px-1.5 min-[360px]:px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
         dir="ltr"
       >
         {/* LEFT SECTION: 🔴 Red pulsing dot & Timer */}
@@ -429,7 +429,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
               {isNearCancel ? "🗑️" : "←"}
             </span>
             <span
-              className={`text-[11px] sm:text-xs font-medium whitespace-nowrap transition-colors duration-100 ${
+              className={`hidden min-[360px]:inline text-[11px] sm:text-xs font-medium whitespace-nowrap transition-colors duration-100 ${
                 isNearCancel ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-500 dark:text-slate-400"
               }`}
             >

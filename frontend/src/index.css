@@ -85,6 +85,9 @@
    ------------------------------------------------------------------------- */
 html {
   scroll-behavior: smooth;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 body {
@@ -94,6 +97,10 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   transition: background-color 0.3s ease, color 0.3s ease;
+  min-width: 0;
+  min-height: 100dvh;
+  max-width: 100%;
+  overflow-x: clip;
 }
 
 html.dark body {
@@ -119,6 +126,14 @@ html.dark body::before {
 #root {
   position: relative;
   z-index: 1;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+p, h1, h2, h3, h4, h5, h6, li, dd, dt, blockquote,
+.prose {
+  overflow-wrap: anywhere;
 }
 
 /* -------------------------------------------------------------------------
@@ -344,7 +359,7 @@ html.lang-ur,
 [dir="rtl"] {
   font-family: 'Noto Sans Arabic', sans-serif;
   letter-spacing: normal !important;
-  word-spacing: 0.18em;
+  word-spacing: 0.08em;
 }
 
 html[lang="ur"] body,
@@ -353,7 +368,18 @@ html.lang-ur body,
   font-family: 'Noto Sans Arabic', sans-serif;
   line-height: 1.6;
   letter-spacing: normal !important;
-  word-spacing: 0.18em;
+  word-spacing: 0.08em;
+}
+
+@media (max-width: 480px) {
+  html[lang="ur"],
+  html.lang-ur,
+  [dir="rtl"],
+  html[lang="ur"] body,
+  html.lang-ur body,
+  [dir="rtl"] body {
+    word-spacing: 0.04em;
+  }
 }
 
 /* Disallow letter-spacing / tracking on Urdu to preserve cursive word shaping */

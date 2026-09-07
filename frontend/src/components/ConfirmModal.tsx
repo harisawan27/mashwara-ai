@@ -67,8 +67,8 @@ export default function ConfirmModal({
           isAnimatingOut ? "opacity-0 scale-95 translate-y-4" : "opacity-100 scale-100 translate-y-0"
         }`}
       >
-        <div className="p-6">
-          <div className="flex items-center gap-4 mb-4">
+        <div className="p-4 min-[360px]:p-6">
+          <div className="flex items-start gap-3 sm:gap-4 mb-4">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
               isDestructive ? "bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400" : "bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-400"
             }`}>
@@ -82,7 +82,7 @@ export default function ConfirmModal({
                 </svg>
               )}
             </div>
-            <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+            <h3 className="min-w-0 text-lg font-bold leading-snug text-slate-900 dark:text-white">
               {title}
             </h3>
           </div>
@@ -91,16 +91,16 @@ export default function ConfirmModal({
             {description}
           </div>
           
-          <div className="flex items-center justify-end gap-3">
+          <div className="flex flex-col-reverse min-[360px]:flex-row min-[360px]:items-center justify-end gap-2 sm:gap-3">
             <button
               onClick={handleClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              className="px-4 py-2 text-center text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
             >
               {effectiveCancelText}
             </button>
             <button
               onClick={handleConfirm}
-              className={`px-4 py-2 text-sm font-medium text-white rounded-xl transition-all shadow-md active:scale-95 ${
+              className={`px-4 py-2 text-center text-sm font-medium text-white rounded-xl transition-all shadow-md active:scale-95 ${
                 isDestructive 
                   ? "bg-red-600 hover:bg-red-700 shadow-red-500/20" 
                   : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"

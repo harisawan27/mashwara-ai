@@ -96,7 +96,7 @@ export default function Settings() {
         <div className="absolute inset-0 dot-pattern opacity-60 dark:opacity-30" />
       </div>
 
-      <div className="relative z-10 max-w-3xl mx-auto p-6 sm:p-10 pt-20">
+      <div className="relative z-10 min-w-0 max-w-3xl mx-auto p-4 min-[360px]:p-5 sm:p-10 pt-16 sm:pt-20">
         
         <button 
           onClick={() => navigate("/")}
@@ -108,15 +108,15 @@ export default function Settings() {
           {t.settings.backToDashboard}
         </button>
 
-        <div className="mb-10">
-          <h1 className="text-3xl font-bold mb-2">{t.settings.pageTitle}</h1>
+        <div className="mb-8 sm:mb-10">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-2">{t.settings.pageTitle}</h1>
           <p className="text-slate-600 dark:text-slate-400 leading-relaxed">
             {t.settings.pageDescription}
           </p>
         </div>
 
         {/* ── Language Preferences Card ── */}
-        <div className="mb-8 glass-elevated rounded-2xl p-6 sm:p-8 space-y-6 border border-slate-200 dark:border-white/5">
+        <div className="mb-8 glass-elevated rounded-2xl p-4 sm:p-8 space-y-6 border border-slate-200 dark:border-white/5">
           <div className="border-b border-slate-200 dark:border-white/5 pb-4">
             <h2 className="text-lg font-semibold text-slate-900 dark:text-white">{t.settings.languageSectionTitle}</h2>
             <p className="text-sm text-slate-500 mt-1">{t.settings.languageSectionDesc}</p>
@@ -183,7 +183,7 @@ export default function Settings() {
         </div>
 
         {!token ? (
-          <div className="glass-elevated rounded-2xl p-6 sm:p-8 mb-8 border border-blue-500/20 bg-blue-500/[0.04]">
+          <div className="glass-elevated rounded-2xl p-4 sm:p-8 mb-8 border border-blue-500/20 bg-blue-500/[0.04]">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 mb-1.5">
@@ -218,7 +218,7 @@ export default function Settings() {
                 </div>
               )}
 
-              <div className="glass-elevated rounded-2xl p-6 sm:p-8 space-y-6">
+                <div className="glass-elevated rounded-2xl p-4 sm:p-8 space-y-6">
                 <h2 className="text-lg font-semibold border-b border-slate-200 dark:border-white/5 pb-4 mb-6">{t.settings.personalDetails}</h2>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
@@ -286,11 +286,11 @@ export default function Settings() {
                 </div>
               </div>
 
-              <div className="flex justify-end">
+              <div className="flex justify-stretch sm:justify-end">
                 <button
                   type="submit"
                   disabled={loading}
-                  className="bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-8 rounded-xl shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[150px] cursor-pointer"
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-8 rounded-xl shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[150px] cursor-pointer"
                 >
                   {loading ? (
                     <svg className="animate-spin w-5 h-5" viewBox="0 0 24 24" fill="none">
@@ -306,7 +306,7 @@ export default function Settings() {
 
             {/* Account Actions / Danger Zone */}
             <div className="mt-12 space-y-6">
-              <div className="glass-elevated rounded-2xl p-6 sm:p-8 space-y-6 border border-slate-200 dark:border-white/5">
+              <div className="glass-elevated rounded-2xl p-4 sm:p-8 space-y-6 border border-slate-200 dark:border-white/5">
                 <h2 className="text-lg font-semibold border-b border-slate-200 dark:border-white/5 pb-4 mb-6">{t.settings.accountActions}</h2>
                 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -317,14 +317,14 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={() => setLogoutModalOpen(true)}
-                    className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors font-medium text-sm cursor-pointer"
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors font-medium text-sm text-center cursor-pointer"
                   >
                     {t.settings.signOut}
                   </button>
                 </div>
               </div>
 
-              <div className="glass-elevated rounded-2xl p-6 sm:p-8 space-y-6 border border-red-500/20 bg-red-50/50 dark:bg-red-500/5">
+              <div className="glass-elevated rounded-2xl p-4 sm:p-8 space-y-6 border border-red-500/20 bg-red-50/50 dark:bg-red-500/5">
                 <h2 className="text-lg font-semibold text-red-600 dark:text-red-400 border-b border-red-500/20 pb-4 mb-6">{t.settings.dangerZone}</h2>
                 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -335,7 +335,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={() => setDeleteModalOpen(true)}
-                    className="px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors font-medium text-sm shadow-lg shadow-red-500/25 cursor-pointer"
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors font-medium text-sm text-center shadow-lg shadow-red-500/25 cursor-pointer"
                   >
                     {t.settings.deleteAccount}
                   </button>

@@ -46,26 +46,26 @@ export default function VoteCard({ roleInfo, vote, delay }: VoteCardProps) {
 
   return (
     <div
-      className="glass-elevated rounded-2xl p-5 animate-slide-up opacity-0 hover:border-white/10 transition-colors"
+      className="glass-elevated rounded-2xl p-4 sm:p-5 animate-slide-up opacity-0 hover:border-white/10 transition-colors"
       style={{ animationDelay: `${delay}s`, animationFillMode: "forwards" }}
     >
       {/* Header: icon + name + vote badge */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-center justify-between gap-2 mb-4">
+        <div className="min-w-0 flex items-center gap-2 sm:gap-3">
           <div
             className={`w-10 h-10 rounded-lg bg-gradient-to-br ${roleInfo.color} flex items-center justify-center text-xl`}
           >
             {roleInfo.icon}
           </div>
-          <div className="text-start">
-            <p className="font-semibold text-white text-sm">{roleName}</p>
-            <p className="text-xs text-slate-500">{roleTitle}</p>
+          <div className="min-w-0 text-start">
+            <p className="truncate font-semibold text-white text-sm">{roleName}</p>
+            <p className="truncate text-xs text-slate-500">{roleTitle}</p>
           </div>
         </div>
 
         {/* Vote badge */}
         <span
-          className={`px-3 py-1 rounded-full text-xs font-bold border ${badgeStyle}`}
+          className={`shrink-0 px-2 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-bold whitespace-nowrap border ${badgeStyle}`}
         >
           {displayVote}
         </span>
