@@ -926,7 +926,11 @@ async def complete_attachment(
     await db.commit()
 
     try:
-        await ingest_attachment_to_store(db, context, att)
+        await ingest_attachment_to_store(
+            attachment=att,
+            context=context,
+            db=db,
+        )
         att.status = "ready"
         context.status = "ready"
         await db.commit()
