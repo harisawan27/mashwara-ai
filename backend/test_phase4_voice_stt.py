@@ -208,11 +208,12 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         mock_genai_client_class.return_value = mock_genai
         mock_file_ref = MagicMock()
         mock_file_ref.name = "files/temp-audio-resource-123"
+        mock_file_ref.uri = "https://generativelanguage.googleapis.com/v1beta/files/temp-audio-resource-123"
         mock_genai.files.upload.return_value = mock_file_ref
 
-        mock_gen_response = MagicMock()
-        mock_gen_response.text = "Main software engineering mein admission lena chahta hoon."
-        mock_genai.models.generate_content.return_value = mock_gen_response
+        mock_interaction = MagicMock()
+        mock_interaction.output_text = "Main software engineering mein admission lena chahta hoon."
+        mock_genai.interactions.create.return_value = mock_interaction
 
         res = transcribe_voice_note(
             storage_key="audio-temp/guest/g1/a1/recording.webm",
@@ -229,9 +230,13 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         mock_gcs.delete_object.assert_called_once_with("audio-temp/guest/g1/a1/recording.webm")
         _, upload_kwargs = mock_genai.files.upload.call_args
         self.assertEqual(upload_kwargs["config"].mime_type, "audio/webm")
-        mock_genai.models.generate_content.assert_called_once_with(
+        mock_genai.interactions.create.assert_called_once_with(
             model="gemini-3.5-transcribe",
-            contents=[mock_file_ref],
+            input=[{
+                "type": "audio",
+                "uri": mock_file_ref.uri,
+                "mime_type": "audio/webm",
+            }],
         )
 
     @patch("agents.transcription.GCSStorageClient")
@@ -248,12 +253,13 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         mock_genai_client_class.return_value = mock_genai
         mock_file_ref = MagicMock()
         mock_file_ref.name = "files/fallback-audio"
+        mock_file_ref.uri = "https://generativelanguage.googleapis.com/v1beta/files/fallback-audio"
         mock_genai.files.upload.return_value = mock_file_ref
         fallback_response = MagicMock(text="Fallback transcript works.")
-        mock_genai.models.generate_content.side_effect = [
-            RuntimeError("dedicated model rejected request"),
-            fallback_response,
-        ]
+        mock_genai.interactions.create.side_effect = RuntimeError(
+            "dedicated model rejected request"
+        )
+        mock_genai.models.generate_content.return_value = fallback_response
 
         result = transcribe_voice_note(
             storage_key="audio-temp/guest/g1/a2/recording.webm",
@@ -262,8 +268,9 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         )
 
         self.assertEqual(result["transcript"], "Fallback transcript works.")
-        self.assertEqual(mock_genai.models.generate_content.call_count, 2)
-        _, fallback_kwargs = mock_genai.models.generate_content.call_args_list[1]
+        mock_genai.interactions.create.assert_called_once()
+        mock_genai.models.generate_content.assert_called_once()
+        _, fallback_kwargs = mock_genai.models.generate_content.call_args
         self.assertEqual(fallback_kwargs["model"], "gemini-3.5-flash-lite")
 
     @patch("agents.transcription.GCSStorageClient")
@@ -280,7 +287,9 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         mock_genai_client_class.return_value = mock_genai
         mock_file_ref = MagicMock(name="files/silent-audio")
         mock_file_ref.name = "files/silent-audio"
+        mock_file_ref.uri = "https://generativelanguage.googleapis.com/v1beta/files/silent-audio"
         mock_genai.files.upload.return_value = mock_file_ref
+        mock_genai.interactions.create.return_value = MagicMock(output_text="")
         mock_genai.models.generate_content.return_value = MagicMock(text="")
 
         with self.assertRaises(NoSpeechDetectedError):

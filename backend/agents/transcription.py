@@ -184,14 +184,22 @@ def transcribe_voice_note(
         gemini_file_name = file_ref.name
         logger.info(f"Gemini Files upload complete: {gemini_file_name}")
 
-        # 3. Use the dedicated STT model with its supported minimal contract.
-        # Prompts and text-generation settings are not valid inputs for this model.
+        # 3. Use the dedicated STT Interactions API. Unlike the legacy
+        # generateContent endpoint, it exposes transcript text consistently as
+        # interaction.output_text rather than an SDK-specific non-text part.
         logger.info(f"Invoking {TRANSCRIBE_MODEL} for speech-to-text...")
         try:
-            response = genai_client.models.generate_content(
+            interaction = genai_client.interactions.create(
                 model=TRANSCRIBE_MODEL,
-                contents=[file_ref],
+                input=[{
+                    "type": "audio",
+                    "uri": file_ref.uri,
+                    "mime_type": normalized_content_type,
+                }],
             )
+            raw_transcript = (interaction.output_text or "").strip()
+            if not raw_transcript:
+                raise RuntimeError("Dedicated STT returned an empty transcript.")
         except Exception as primary_error:
             # General audio understanding provides a resilient fallback while
             # preserving the same uploaded file and privacy cleanup lifecycle.
@@ -203,8 +211,8 @@ def transcribe_voice_note(
                 contents=[file_ref, build_transcription_prompt(language)],
                 config=types.GenerateContentConfig(temperature=0.0),
             )
+            raw_transcript = (response.text or "").strip()
 
-        raw_transcript = (response.text or "").strip()
         if not raw_transcript:
             raise NoSpeechDetectedError("No speech was detected in the recording.")
         logger.info(f"Speech transcription succeeded ({len(raw_transcript)} chars).")
