@@ -15,6 +15,7 @@ from typing import Optional, Tuple, Dict, Any
 from google.cloud import storage
 import google.auth
 from google.auth.credentials import Signing
+from google.auth.transport.requests import Request as GoogleAuthRequest
 
 logger = logging.getLogger("mashwara_ai.storage")
 
@@ -27,6 +28,41 @@ MAX_FILES_PER_CONTEXT = 5
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024       # 20 MB
 MAX_COMBINED_SIZE_BYTES = 50 * 1024 * 1024   # 50 MB
 SIGNED_URL_EXPIRY_MINUTES = 5
+
+
+def _signed_url_auth_kwargs() -> Dict[str, Any]:
+    """Return signing arguments that work with both local and Cloud Run ADC.
+
+    Service-account key credentials can sign locally. Cloud Run supplies
+    compute credentials containing only an OAuth token, so the Storage client
+    must use IAM ``signBlob`` via ``access_token`` and
+    ``service_account_email`` instead.
+    """
+    credentials = None
+    service_account_email = None
+
+    try:
+        credentials, _ = google.auth.default()
+        service_account_email = getattr(credentials, "service_account_email", None)
+    except Exception:
+        # Local tests may use a mocked Storage client without ADC.
+        pass
+
+    if not service_account_email:
+        service_account_email = os.getenv(
+            "GCS_SERVICE_ACCOUNT_EMAIL",
+            "971578232755-compute@developer.gserviceaccount.com",
+        )
+
+    kwargs: Dict[str, Any] = {"service_account_email": service_account_email}
+    if credentials is not None and not isinstance(credentials, Signing):
+        auth_request = GoogleAuthRequest()
+        credentials.refresh(auth_request)
+        if not credentials.token:
+            raise RuntimeError("Cloud runtime credentials did not provide an access token for IAM signing.")
+        kwargs["access_token"] = credentials.token
+
+    return kwargs
 
 # Allowed Extensions and MIME Types
 ALLOWED_EXTENSIONS = {
@@ -259,20 +295,6 @@ class GCSStorageClient:
         bucket = client.bucket(self.bucket_name)
         blob = bucket.blob(storage_key)
 
-        # Determine service account email from credentials if available
-        service_account_email = None
-        try:
-            credentials, project = google.auth.default()
-            service_account_email = getattr(credentials, "service_account_email", None)
-        except Exception:
-            pass
-
-        if not service_account_email:
-            service_account_email = os.getenv(
-                "GCS_SERVICE_ACCOUNT_EMAIL",
-                "971578232755-compute@developer.gserviceaccount.com"
-            )
-
         try:
             # Generate V4 signed URL
             url = blob.generate_signed_url(
@@ -280,7 +302,7 @@ class GCSStorageClient:
                 expiration=datetime.timedelta(minutes=expires_minutes),
                 method="PUT",
                 content_type=content_type,
-                service_account_email=service_account_email,
+                **_signed_url_auth_kwargs(),
             )
             return url
         except Exception as e:
@@ -404,25 +426,12 @@ class GCSStorageClient:
         bucket = client.bucket(self.bucket_name)
         blob = bucket.blob(storage_key)
 
-        service_account_email = None
-        try:
-            credentials, project = google.auth.default()
-            service_account_email = getattr(credentials, "service_account_email", None)
-        except Exception:
-            pass
-
-        if not service_account_email:
-            service_account_email = os.getenv(
-                "GCS_SERVICE_ACCOUNT_EMAIL",
-                "971578232755-compute@developer.gserviceaccount.com"
-            )
-
         try:
             url = blob.generate_signed_url(
                 version="v4",
                 expiration=datetime.timedelta(minutes=expires_minutes),
                 method="GET",
-                service_account_email=service_account_email,
+                **_signed_url_auth_kwargs(),
             )
             return url
         except Exception as e:
@@ -524,4 +533,3 @@ def delete_tts_cache_for_user(user_id: str, meeting_id: Optional[str] = None) ->
 def delete_tts_cache_for_guest(guest_scope_id: str, meeting_id: Optional[str] = None) -> int:
     """Convenience wrapper for storage_client.delete_tts_cache_for_guest."""
     return storage_client.delete_tts_cache_for_guest(guest_scope_id, meeting_id)
-

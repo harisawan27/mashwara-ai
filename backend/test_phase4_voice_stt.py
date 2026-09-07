@@ -14,7 +14,7 @@ import os
 import sys
 import asyncio
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add backend directory to sys.path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import HTTPException, Request
 
 from tools.storage import (
+    GCSStorageClient,
     validate_audio_metadata,
     get_audio_extension_for_mime,
     build_audio_storage_key,
@@ -38,6 +39,7 @@ from agents.transcription import (
 )
 from main import (
     presign_audio,
+    upload_audio_endpoint,
     transcribe_audio_endpoint,
     delete_audio_endpoint,
     AudioPresignRequest,
@@ -51,6 +53,40 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         req = MagicMock(spec=Request)
         req.headers = headers or {}
         return req
+
+    @patch("tools.storage.GoogleAuthRequest")
+    @patch("tools.storage.google.auth.default")
+    def test_cloud_run_credentials_use_iam_signing(self, mock_auth_default, mock_auth_request):
+        """Cloud Run token-only credentials must use IAM signBlob."""
+        runtime_credentials = MagicMock()
+        runtime_credentials.service_account_email = (
+            "971578232755-compute@developer.gserviceaccount.com"
+        )
+        runtime_credentials.token = "runtime-access-token"
+        mock_auth_default.return_value = (runtime_credentials, "central-octane-473814-s0")
+
+        mock_blob = MagicMock()
+        mock_blob.generate_signed_url.return_value = "https://storage.googleapis.com/signed-put-url"
+        mock_bucket = MagicMock()
+        mock_bucket.blob.return_value = mock_blob
+        mock_client = MagicMock()
+        mock_client.bucket.return_value = mock_bucket
+
+        storage_manager = GCSStorageClient("test-bucket")
+        storage_manager._client = mock_client
+        result = storage_manager.generate_signed_upload_url(
+            "audio-temp/test/recording.webm",
+            "audio/webm;codecs=opus",
+        )
+
+        self.assertEqual(result, "https://storage.googleapis.com/signed-put-url")
+        runtime_credentials.refresh.assert_called_once_with(mock_auth_request.return_value)
+        _, kwargs = mock_blob.generate_signed_url.call_args
+        self.assertEqual(kwargs["access_token"], "runtime-access-token")
+        self.assertEqual(
+            kwargs["service_account_email"],
+            "971578232755-compute@developer.gserviceaccount.com",
+        )
 
     # ---------------------------------------------------------------------------
     # 1. Storage & Audio Metadata Validation Tests
@@ -310,12 +346,32 @@ class TestPhase4VoiceSTT(unittest.TestCase):
             size_bytes=1024 * 100,
             duration_seconds=10.0
         )
-        with self.assertRaises(HTTPException) as ctx:
-            asyncio.run(presign_audio(request=req, body=body, current_user=None))
-        self.assertEqual(ctx.exception.status_code, 500)
-        # Verify internal GCS details are not leaked to frontend
-        self.assertEqual(ctx.exception.detail, "Failed to initialize secure audio upload.")
-        self.assertNotIn("credentials", ctx.exception.detail)
+        result = asyncio.run(presign_audio(request=req, body=body, current_user=None))
+        self.assertEqual(result.upload_url, f"/audio/{result.audio_id}/upload")
+        self.assertTrue(result.gcs_key.startswith("audio-temp/guest/guest_err_test/"))
+
+    @patch("main.save_blob_bytes")
+    def test_api_audio_upload_fallback(self, mock_save_blob):
+        audio_id = "b6288ad8-c193-4d4b-b970-032f3cb4a693"
+        audio_bytes = b"small-webm-recording"
+        req = self.make_mock_request({
+            "content-type": "audio/webm;codecs=opus",
+            "content-length": str(len(audio_bytes)),
+            "x-guest-scope-id": "guest_upload_scope",
+            "x-guest-scope-secret": "secret_123",
+        })
+        req.body = AsyncMock(return_value=audio_bytes)
+
+        result = asyncio.run(
+            upload_audio_endpoint(request=req, audio_id=audio_id, current_user=None)
+        )
+
+        self.assertEqual(result["status"], "uploaded")
+        mock_save_blob.assert_called_once_with(
+            f"audio-temp/guest/guest_upload_scope/{audio_id}/recording.webm",
+            audio_bytes,
+            content_type="audio/webm;codecs=opus",
+        )
 
     @patch("main.verify_uploaded_object")
     @patch("main.transcribe_voice_note")

@@ -1206,8 +1206,10 @@ async def presign_audio(
             expires_minutes=5,
         )
     except Exception as e:
-        logger.error(f"Failed to generate signed URL for voice note: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to initialize secure audio upload.")
+        # Cloud Run may have storage access without IAM signBlob permission.
+        # Keep voice notes working through the authenticated API upload route.
+        logger.warning(f"Signed audio upload unavailable; using API upload fallback: {e}")
+        upload_url = f"/audio/{audio_id}/upload"
 
     return AudioPresignResponse(
         upload_url=upload_url,
@@ -1215,6 +1217,51 @@ async def presign_audio(
         gcs_key=gcs_key,
         expires_in_seconds=300,
     )
+
+
+@app.put("/audio/{audio_id}/upload", tags=["Audio"])
+@limiter.limit("20/minute")
+async def upload_audio_endpoint(
+    request: Request,
+    audio_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    """Store a voice note when direct signed uploads are unavailable."""
+    try:
+        uuid.UUID(audio_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid audio upload ID.")
+
+    content_type = request.headers.get("content-type", "")
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > MAX_VOICE_AUDIO_SIZE_BYTES:
+                raise HTTPException(status_code=413, detail="Audio recording exceeds the 25 MB limit.")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid audio content length.")
+
+    audio_bytes = await request.body()
+    valid, err = validate_audio_metadata(content_type, len(audio_bytes))
+    if not valid:
+        raise HTTPException(status_code=400, detail=err or "Invalid audio upload.")
+
+    guest_scope_id, _ = get_guest_scope(request)
+    user_id_str = str(current_user.id) if current_user else None
+    gcs_key = build_audio_storage_key(
+        audio_id=audio_id,
+        content_type=content_type,
+        user_id=user_id_str,
+        guest_scope_id=guest_scope_id,
+    )
+
+    try:
+        save_blob_bytes(gcs_key, audio_bytes, content_type=content_type)
+    except Exception as e:
+        logger.error(f"API audio upload failed for {audio_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to store audio recording.")
+
+    return {"status": "uploaded", "audio_id": audio_id}
 
 
 @app.post("/audio/{audio_id}/transcribe", response_model=AudioTranscribeResponse, tags=["Audio"])

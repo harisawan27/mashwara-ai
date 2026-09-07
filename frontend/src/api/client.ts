@@ -397,9 +397,25 @@ export function uploadAudioBlobToGCS(
   onProgress?: (percent: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    const isApiUpload = uploadUrl.startsWith("/");
+    const resolvedUploadUrl = isApiUpload
+      ? `${API_BASE.replace(/\/$/, "")}${uploadUrl}`
+      : uploadUrl;
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl, true);
+    xhr.open("PUT", resolvedUploadUrl, true);
     xhr.setRequestHeader("Content-Type", contentType);
+
+    if (isApiUpload) {
+      const token = localStorage.getItem("token");
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      } else {
+        const guestHeaders = getGuestScopeHeaders();
+        Object.entries(guestHeaders).forEach(([key, value]) => {
+          xhr.setRequestHeader(key, value);
+        });
+      }
+    }
 
     if (xhr.upload && onProgress) {
       xhr.upload.onprogress = (e) => {
