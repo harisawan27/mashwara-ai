@@ -3,6 +3,7 @@ import os
 
 # Add backend directory to sys.path
 sys.path.insert(0, os.path.abspath("backend"))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from main import (
     is_arabic_response,

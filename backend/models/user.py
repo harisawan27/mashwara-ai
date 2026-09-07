@@ -23,3 +23,4 @@ class User(Base):
     meetings = relationship("Meeting", back_populates="user", cascade="all, delete-orphan")
     sessions = relationship("ChatSession", back_populates="user", cascade="all, delete-orphan")
     shared_mashwaras = relationship("SharedMashwara", back_populates="user")
+    attachment_contexts = relationship("AttachmentContext", back_populates="user", cascade="all, delete-orphan")

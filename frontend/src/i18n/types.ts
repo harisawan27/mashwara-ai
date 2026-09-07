@@ -211,4 +211,59 @@ export interface TranslationSchema {
     shareFailed: string;
     pdfExportError?: string;
   };
+  attachments: {
+    attachFiles: string;
+    attachTooltip: string;
+    uploading: string;
+    processing: string;
+    ready: string;
+    error: string;
+    remove: string;
+    maxFilesExceeded: string;
+    fileTooLarge: string;
+    unsupportedType: string;
+    documentsUsed: string;
+    uploadFailed: string;
+  };
+  webSearch: {
+    modeAuto: string;
+    modeOn: string;
+    modeOff: string;
+    tooltip: string;
+    researching: string;
+    sourcesFound: string;
+    sourcesTitle: string;
+    researchedOn: string;
+    searchUnavailable: string;
+    viewSource: string;
+  };
+  voiceNote: {
+    recordTooltip: string;
+    holdToRecord: string;
+    slideToCancel: string;
+    slideUpToLock: string;
+    recording: string;
+    locked: string;
+    paused: string;
+    transcribing: string;
+    deleteTooltip: string;
+    pauseTooltip: string;
+    resumeTooltip: string;
+    finishTooltip: string;
+    tooShort: string;
+    timeLimitWarning: string;
+    permissionDenied: string;
+    unsupportedBrowser: string;
+    transcriptionFailed: string;
+  };
+  summaryAudio: {
+    listen: string;
+    playing: string;
+    pause: string;
+    preparing: string;
+    replay: string;
+    error: string;
+    voiceLabel: string;
+  };
 }
+

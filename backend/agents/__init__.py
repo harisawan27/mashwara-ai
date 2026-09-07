@@ -44,6 +44,9 @@ from agents.language_intelligence import (
     resolve_consultation_language,
     detect_consultation_domain,
 )
+from agents.decision_router import route_consultation_council
+from agents.evidence_extractor import FileEvidencePack, format_evidence_for_prompt
+from agents.web_research import WebEvidencePack, format_web_evidence_for_prompt
 from templates.board_templates import TemplateType
 
 logger = logging.getLogger("mashwara_ai.agents")
@@ -254,6 +257,8 @@ async def run_meeting(
     template_type: TemplateType,
     fields: Dict[str, Any],
     cancel_event: Optional[asyncio.Event] = None,
+    evidence_pack: Optional[FileEvidencePack] = None,
+    web_evidence: Optional[WebEvidencePack] = None,
 ) -> AsyncGenerator[str, None]:
     """
     Runs a full Mashwara AI consultation:
@@ -271,10 +276,76 @@ async def run_meeting(
     user_prompt = fields.get("prompt", "").strip()
     frontend_lang = fields.get("language")
 
-    # 1. Authoritative Language & Domain Resolution
+    # 1. Authoritative Language & Routing Resolution
     target_lang, detected_lang = resolve_consultation_language(frontend_lang, user_prompt)
-    template_key = template_type.value if hasattr(template_type, "value") else str(template_type)
-    domain, secondary_domains = detect_consultation_domain(user_prompt, template_hint=template_key)
+    raw_template_key = template_type.value if hasattr(template_type, "value") else str(template_type)
+
+    # Template handling (Amendment 2):
+    # - missing/null/empty -> AUTO
+    # - AUTO -> AUTO
+    # - known legacy template -> hint
+    # - unknown non-empty value -> log warning, safely use AUTO
+    known_legacy = {"STARTUP_BOARD", "HIRING_BOARD", "FREELANCER_BOARD", "STUDENT_BOARD", "PRODUCT_BOARD"}
+    if not raw_template_key or raw_template_key.strip() in ("", "None", "AUTO"):
+        effective_template = TemplateType.AUTO
+        template_hint = None
+    elif raw_template_key in known_legacy:
+        effective_template = TemplateType(raw_template_key)
+        template_hint = raw_template_key
+    else:
+        logger.warning(f"Unknown template '{raw_template_key}' received for meeting {meeting_id}; safely routing via AUTO.")
+        effective_template = TemplateType.AUTO
+        template_hint = None
+
+    template_key = effective_template.value
+
+    # Format document evidence if present
+    evidence_text = ""
+    evidence_summary = ""
+    if evidence_pack:
+        evidence_text = format_evidence_for_prompt(evidence_pack, target_lang)
+        evidence_summary = getattr(evidence_pack, "evidence_summary", "") or ""
+
+    # Format web evidence if present
+    web_evidence_text = ""
+    web_evidence_summary = ""
+    if web_evidence and getattr(web_evidence, "used", False):
+        web_evidence_text = format_web_evidence_for_prompt(web_evidence, target_lang)
+        web_evidence_summary = getattr(web_evidence, "evidence_summary", "") or ""
+
+    # Combine file and web evidence under distinct untrusted delimiters
+    combined_evidence_text = ""
+    if evidence_text and web_evidence_text:
+        combined_evidence_text = f"{evidence_text}\n\n{web_evidence_text}"
+    elif evidence_text:
+        combined_evidence_text = evidence_text
+    elif web_evidence_text:
+        combined_evidence_text = web_evidence_text
+
+    # Run decision router (pure functional, timeout-bounded)
+    routing_result = await route_consultation_council(
+        user_prompt=user_prompt,
+        target_lang=target_lang,
+        template_hint=template_hint,
+        timeout_seconds=5.0,
+        document_summary=evidence_summary if evidence_summary else None,
+        web_evidence_summary=web_evidence_summary if web_evidence_summary else None,
+    )
+
+    council_role_keys = routing_result.selected_roles
+    dynamic_defs = routing_result.dynamic_role_defs
+
+    # Structured observability logging (Amendment 4 & prompt item 21)
+    logger.info(
+        f"[Mashwara Routing] meeting={meeting_id} hint={template_hint} "
+        f"fallback={routing_result.is_fallback} "
+        f"primary_dim={routing_result.primary_dimension} "
+        f"roles={council_role_keys} dynamic_count={len(dynamic_defs)} "
+        f"duration={routing_result.routing_duration_ms:.2f}ms"
+    )
+
+    domain = routing_result.primary_dimension
+    secondary_domains = routing_result.secondary_dimensions
 
     context = ConsultationContext(
         language=target_lang,
@@ -282,26 +353,42 @@ async def run_meeting(
         domain=domain,
         user_message=user_prompt,
         secondary_domains=secondary_domains,
-        template_hint=template_key,
+        template_hint=template_hint,
     )
-
-    council_role_keys = get_council_roles(domain, secondary_domains=secondary_domains, user_text=user_prompt)
 
     # 2. Build and Emit Localized Roles Event
     roles_info = []
     for rk in council_role_keys:
-        meta = ROLE_METADATA.get(rk, ROLE_METADATA["career_advisor"])
-        lang_data = meta.get(target_lang, meta.get("en", {}))
-        roles_info.append({
-            "key": rk,
-            "role_id": rk,
-            "name": lang_data.get("name", rk),
-            "title": lang_data.get("title", ""),
-            "description": lang_data.get("description", ""),
-            "icon": meta.get("icon", "👔"),
-            "color": meta.get("color", "from-blue-500 to-blue-700"),
-            "is_moderator": False,
-        })
+        if rk in dynamic_defs:
+            dyn = dynamic_defs[rk]
+            name_d = dyn.get("name", {})
+            title_d = dyn.get("title", {})
+            desc_d = dyn.get("description", {})
+            roles_info.append({
+                "key": rk,
+                "role_id": rk,
+                "name": name_d.get(target_lang, name_d.get("en", rk)),
+                "title": title_d.get(target_lang, title_d.get("en", "")),
+                "description": desc_d.get(target_lang, desc_d.get("en", "")),
+                "icon": dyn.get("icon", "🛡️"),
+                "color": dyn.get("color", "from-slate-500 to-slate-700"),
+                "is_moderator": False,
+                "is_dynamic": True,
+            })
+        else:
+            meta = ROLE_METADATA.get(rk, ROLE_METADATA["career_advisor"])
+            lang_data = meta.get(target_lang, meta.get("en", {}))
+            roles_info.append({
+                "key": rk,
+                "role_id": rk,
+                "name": lang_data.get("name", rk),
+                "title": lang_data.get("title", ""),
+                "description": lang_data.get("description", ""),
+                "icon": meta.get("icon", "👔"),
+                "color": meta.get("color", "from-blue-500 to-blue-700"),
+                "is_moderator": False,
+                "is_dynamic": False,
+            })
 
     # Lead Advisor / Moderator
     lead_meta = ROLE_METADATA["lead_advisor"]
@@ -315,13 +402,30 @@ async def run_meeting(
         "icon": lead_meta.get("icon", "⚖️"),
         "color": lead_meta.get("color", "from-indigo-500 to-indigo-700"),
         "is_moderator": True,
+        "is_dynamic": False,
     }
     roles_info.append(lead_role_info)
 
     yield json.dumps({"type": "roles", "data": roles_info})
 
+    # Emit evidence pack if present
+    if evidence_pack:
+        ev_data = evidence_pack.to_dict() if hasattr(evidence_pack, "to_dict") else (evidence_pack.model_dump() if hasattr(evidence_pack, "model_dump") else evidence_pack)
+        yield json.dumps({"type": "evidence", "data": ev_data})
+
+    # Emit web evidence pack if present
+    if web_evidence and getattr(web_evidence, "used", False):
+        web_ev_data = web_evidence.to_dict() if hasattr(web_evidence, "to_dict") else web_evidence
+        yield json.dumps({"type": "web_evidence", "data": web_ev_data})
+
     # Queue for streaming chunks and status messages
     queue: asyncio.Queue = asyncio.Queue()
+
+    def get_role_display_name(rk: str) -> str:
+        if rk in dynamic_defs:
+            name_d = dynamic_defs[rk].get("name", {})
+            return name_d.get(target_lang, name_d.get("en", rk))
+        return ROLE_METADATA.get(rk, {}).get(target_lang, {}).get("name", rk)
 
     # -----------------------------------------------------------------------
     # Specialist Execution Helper (with short bounded retries)
@@ -376,8 +480,10 @@ async def run_meeting(
         await queue.put({"type": "status", "agent": rk, "status": "thinking", "message": ""})
 
     async def run_single_specialist_round1(rk: str) -> Tuple[str, Dict[str, Any]]:
-        sys_prompt = get_specialist_prompt(rk, target_lang)
-        user_msg = f"Mashwara Request:\n{user_prompt}\n\nProvide your independent assessment and structured JSON."
+        dyn_def = dynamic_defs.get(rk)
+        sys_prompt = get_specialist_prompt(rk, target_lang, dynamic_role_def=dyn_def)
+        ev_clause = f"\n\n{combined_evidence_text}" if combined_evidence_text else ""
+        user_msg = f"Mashwara Request:\n{user_prompt}{ev_clause}\n\nProvide your independent assessment and structured JSON."
         raw_text = await call_specialist_stream(rk, user_msg, sys_prompt, SPECIALIST_MODEL, SPECIALIST_TOKENS)
         parsed = parse_specialist_output(raw_text)
 
@@ -470,7 +576,7 @@ async def run_meeting(
         # Build compact digest of Round 1
         digest_lines = []
         for rk, r1 in round1_results.items():
-            name = ROLE_METADATA.get(rk, {}).get(target_lang, {}).get("name", rk)
+            name = get_role_display_name(rk)
             digest_lines.append(f"- {name} ({rk}): {r1['position'].upper()} ({r1['confidence']}%) | Concern: {r1.get('key_concern', 'None')}")
         peer_summary = "\n".join(digest_lines)
 
@@ -483,8 +589,10 @@ async def run_meeting(
             })
 
         async def run_single_rebuttal(rk: str) -> Tuple[str, Dict[str, Any]]:
-            reb_prompt = get_rebuttal_prompt(rk, target_lang, peer_summary)
-            user_msg = f"User situation:\n{user_prompt}\n\nPresent your rebuttal and final revised position."
+            dyn_def = dynamic_defs.get(rk)
+            reb_prompt = get_rebuttal_prompt(rk, target_lang, peer_summary, dynamic_role_def=dyn_def)
+            ev_clause = f"\n\n{combined_evidence_text}" if combined_evidence_text else ""
+            user_msg = f"User situation:\n{user_prompt}{ev_clause}\n\nPresent your rebuttal and final revised position."
             raw_text = await call_specialist_stream(rk, user_msg, reb_prompt, DELIBERATION_MODEL, REBUTTAL_TOKENS)
             r1_orig = round1_results.get(rk, {})
             parsed = parse_rebuttal_output(raw_text, r1_orig.get("position", "uncertain"), r1_orig.get("confidence", 65))
@@ -535,7 +643,7 @@ async def run_meeting(
             nonlocal completed_r2
             while completed_r2 < len(rebuttal_keys) and not cancel_event.is_set():
                 try:
-                    evt = await asyncio.wait_for(queue.get(), timeout=60.0)
+                    evt = await asyncio.wait_for(queue.get(), timeout=90.0)
                 except asyncio.TimeoutError:
                     break
                 if evt.get("type") == "status" and evt.get("status") == "done":
@@ -578,7 +686,7 @@ async def run_meeting(
     # Build immutable specialist vote summary
     vote_summary_lines = []
     for rk, vdata in final_votes.items():
-        name = ROLE_METADATA.get(rk, {}).get(target_lang, {}).get("name", rk)
+        name = get_role_display_name(rk)
         vote_summary_lines.append(f"- {name} ({rk}): Vote={vdata['vote']} (Confidence: {vdata['confidence']}%)")
     immutable_votes_summary = "\n".join(vote_summary_lines)
 
@@ -586,19 +694,20 @@ async def run_meeting(
     mod_sys_prompt = get_lead_advisor_prompt(target_lang, immutable_votes_summary)
     
     # Contextual synthesis user message
+    ev_clause = f"\n\n{combined_evidence_text}" if combined_evidence_text else ""
     mod_user_msg = f"""User Decision Request:
-{user_prompt}
+{user_prompt}{ev_clause}
 
 Specialist Analyses (Round 1):
 """
     for rk, r1 in round1_results.items():
-        name = ROLE_METADATA.get(rk, {}).get(target_lang, {}).get("name", rk)
+        name = get_role_display_name(rk)
         mod_user_msg += f"\n--- {name} ({rk}) ---\n{r1['clean_text']}\n"
 
     if round2_rebuttals:
         mod_user_msg += "\nRound 2 Deliberation & Rebuttals:\n"
         for rk, r2 in round2_rebuttals.items():
-            name = ROLE_METADATA.get(rk, {}).get(target_lang, {}).get("name", rk)
+            name = get_role_display_name(rk)
             mod_user_msg += f"\n--- {name} ({rk}) ---\n{r2['clean_text']}\n"
 
     mod_user_msg += "\nSynthesize the final Mashwara report strictly respecting the specialist votes."
@@ -647,6 +756,22 @@ Specialist Analyses (Round 1):
         "key_risks": parsed_report.get("key_risks", ["Evaluate unexpected cash flow or workload friction."]),
         "recommended_actions": parsed_report.get("recommended_actions", ["Proceed with a 30-day testing milestone."]),
     }
+    if evidence_pack:
+        report_dict["evidence_sources"] = [
+            {"filename": src.filename, "size_bytes": src.size_bytes} for src in evidence_pack.sources
+        ]
+    if web_evidence and getattr(web_evidence, "used", False) and getattr(web_evidence, "sources", None):
+        report_dict["web_sources"] = [
+            {
+                "id": s.id,
+                "title": s.title,
+                "url": s.url,
+                "domain": s.domain,
+                "source_type": s.source_type,
+            }
+            for s in web_evidence.sources
+        ]
+        report_dict["searched_at"] = getattr(web_evidence, "searched_at", None)
 
     yield json.dumps({"type": "report", "data": report_dict})
     yield json.dumps({"type": "done"})

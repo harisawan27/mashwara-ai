@@ -12,6 +12,7 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
+import SummaryAudioPlayer from "./SummaryAudioPlayer";
 import { useTranslation } from "../i18n";
 import { isVisibleExpert } from "../utils/roleVisibility";
 import type { RoleInfo, SharedMashwaraExpert } from "../api/client";
@@ -29,6 +30,8 @@ export interface MashwaraResultViewProps {
   mode?: "interactive" | "export";
   customT?: any;
   language?: string;
+  meetingId?: string;
+  allowAudio?: boolean;
 }
 
 function token(key: string | undefined, t: any) {
@@ -163,6 +166,8 @@ export default function MashwaraResultView({
   mode = "interactive",
   customT,
   language: propLanguage,
+  meetingId,
+  allowAudio = false,
 }: MashwaraResultViewProps) {
   const defaultI18n = useTranslation();
   const t = customT || defaultI18n.t;
@@ -439,7 +444,44 @@ export default function MashwaraResultView({
               <VoteTally votes={report.board_votes} t={t} />
             </div>
           )}
+
+          {/* Documents Used evidence badge list */}
+          {(() => {
+            const evSources = report.evidence_sources || (report.evidence && report.evidence.sources) || [];
+            if (!evSources || evSources.length === 0) return null;
+            return (
+              <div data-pdf-section="evidence-sources" className="mt-5 pt-4 border-t border-slate-200 dark:border-white/[0.06] flex items-center flex-wrap gap-2">
+                <span className="text-[10px] text-slate-500 uppercase tracking-wider font-bold flex items-center gap-1">
+                  <svg className="w-3.5 h-3.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                  </svg>
+                  {t.attachments?.documentsUsed || "Documents Used"}:
+                </span>
+                {evSources.map((src: any, idx: number) => (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm"
+                  >
+                    <span className="text-xs">📄</span>
+                    <span className="max-w-[200px] truncate">{src.filename}</span>
+                    {src.size_bytes && (
+                      <span className="text-[10px] text-slate-400">
+                        ({(src.size_bytes / 1024 < 1024 ? `${(src.size_bytes / 1024).toFixed(0)} KB` : `${(src.size_bytes / (1024 * 1024)).toFixed(1)} MB`)})
+                      </span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            );
+          })()}
         </div>
+
+        {/* Companion Executive Summary Narration (Phase 5) - Strictly Private Only */}
+        {allowAudio && meetingId && !isExportMode && (
+          <div className="mb-1">
+            <SummaryAudioPlayer meetingId={meetingId} />
+          </div>
+        )}
 
         {/* Consensus summary */}
         {report.debate_summary && (
@@ -564,6 +606,42 @@ export default function MashwaraResultView({
             <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
               {report.what_would_change}
             </p>
+          </div>
+        )}
+
+        {/* Web Sources / Cited Evidence (Interactive Mode) */}
+        {report?.web_sources && report.web_sources.length > 0 && (
+          <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] p-4 sm:p-5 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🌐</span>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">
+                  {t.webSearch?.sourcesTitle || (currentLanguage === "ur" ? "تحقیقی ذرائع" : "Web Sources")}
+                </p>
+              </div>
+              {report.searched_at && (
+                <span className="text-[10px] text-slate-400">
+                  {t.webSearch?.researchedOn || "Researched"}: {report.searched_at.slice(0, 10)}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {report.web_sources.map((src: any) => (
+                <a
+                  key={src.id || src.url}
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 hover:border-blue-400 dark:hover:border-blue-500 transition-colors text-xs group"
+                >
+                  <div className="min-w-0 pr-2">
+                    <span className="font-medium text-slate-800 dark:text-slate-200 group-hover:text-blue-600 dark:group-hover:text-blue-400 block truncate">{src.title || src.domain}</span>
+                    <span className="text-[10px] text-slate-400">{src.domain}</span>
+                  </div>
+                  <span className="text-blue-500 text-xs flex-shrink-0">↗</span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
 
@@ -1038,6 +1116,42 @@ export default function MashwaraResultView({
                 </p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* 10.5 Web Sources / Cited Evidence (Export Mode with semantic pagination section) */}
+        {report?.web_sources && report.web_sources.length > 0 && (
+          <div data-pdf-section="report-web-sources" className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">🌐</span>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
+                  {t.webSearch?.sourcesTitle || (isUrdu ? "تحقیقی ذرائع" : "Web Sources")}
+                </p>
+              </div>
+              {report.searched_at && (
+                <span className="text-[10px] text-slate-400">
+                  {t.webSearch?.researchedOn || "Researched"}: {report.searched_at.slice(0, 10)}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {report.web_sources.map((src: any) => (
+                <a
+                  key={src.id || src.url}
+                  href={src.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-2 rounded-xl bg-white border border-slate-200 hover:border-blue-400 transition-colors text-xs group"
+                >
+                  <div className="min-w-0 pr-2">
+                    <span className="font-medium text-slate-800 group-hover:text-blue-600 block truncate">{src.title || src.domain}</span>
+                    <span className="text-[10px] text-slate-400">{src.domain}</span>
+                  </div>
+                  <span className="text-blue-500 text-xs">↗</span>
+                </a>
+              ))}
+            </div>
           </div>
         )}
 

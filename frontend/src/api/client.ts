@@ -6,11 +6,32 @@
  */
 
 import axios from "axios";
+import type { AttachmentItem, AudioPresignResponse, AudioTranscribeResponse, SummaryAudioResponse } from "../types/meeting";
 
 // ---------------------------------------------------------------------------
 // Axios instance (for non-streaming calls like health check)
 // ---------------------------------------------------------------------------
 const API_BASE = import.meta.env.VITE_API_URL || import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
+export function getGuestScopeHeaders(): Record<string, string> {
+  const token = localStorage.getItem("token");
+  if (token) return {};
+
+  let scopeId = sessionStorage.getItem("mashwara_guest_scope_id");
+  let secret = sessionStorage.getItem("mashwara_guest_scope_secret");
+  if (!scopeId) {
+    scopeId = "guest_" + Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+    sessionStorage.setItem("mashwara_guest_scope_id", scopeId);
+  }
+  if (!secret) {
+    secret = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    sessionStorage.setItem("mashwara_guest_scope_secret", secret);
+  }
+  return {
+    "X-Guest-Scope-Id": scopeId,
+    "X-Guest-Scope-Secret": secret,
+  };
+}
 
 const apiClient = axios.create({
   baseURL: API_BASE,
@@ -18,11 +39,16 @@ const apiClient = axios.create({
   headers: { "Content-Type": "application/json" },
 });
 
-// Interceptor to inject JWT token
+// Interceptor to inject JWT token or guest scope credentials
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token && config.headers) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else if (config.headers) {
+    const guestHeaders = getGuestScopeHeaders();
+    Object.entries(guestHeaders).forEach(([k, v]) => {
+      config.headers[k] = v;
+    });
   }
   return config;
 });
@@ -36,6 +62,9 @@ export interface RoleInfo {
   title: string;
   icon: string;
   color: string;
+  description?: string;
+  is_moderator?: boolean;
+  is_dynamic?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,7 +87,12 @@ export async function streamChat(
   onComplete: () => void,
   abortSignal?: AbortSignal,
   onFinal?: (agent: string, text: string, thinking: string) => void,
-  onChatSummary?: (summaryText: string) => void
+  onChatSummary?: (summaryText: string) => void,
+  attachmentContextId?: string,
+  onEvidence?: (evidence: any) => void,
+  webSearchMode?: string,
+  webEvidence?: any,
+  onWebEvidence?: (webEvidence: any) => void
 ) {
   try {
     const token = localStorage.getItem("token");
@@ -67,14 +101,29 @@ export async function streamChat(
       "Content-Type": "application/json",
       "Accept-Language": currentLang,
     };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      const guestHeaders = getGuestScopeHeaders();
+      Object.entries(guestHeaders).forEach(([k, v]) => {
+        headers[k] = v;
+      });
+    }
 
     const response = await fetch(
       `${API_BASE}/chat/stream`,
       {
         method: "POST",
         headers,
-        body: JSON.stringify({ template, prompt, session_id: sessionId, language: currentLang }),
+        body: JSON.stringify({
+          template,
+          prompt,
+          session_id: sessionId,
+          language: currentLang,
+          attachment_context_id: attachmentContextId || undefined,
+          web_search_mode: webSearchMode || "auto",
+          web_evidence: webEvidence || undefined,
+        }),
         signal: abortSignal,
       }
     );
@@ -94,13 +143,20 @@ export async function streamChat(
       buffer = lines.pop() || "";
 
       for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const dataStr = line.substring(6);
+        const cleanLine = line.endsWith("\r") ? line.slice(0, -1) : line;
+        if (cleanLine.startsWith("data: ")) {
+          const dataStr = cleanLine.substring(6);
           try {
             const data = JSON.parse(dataStr);
             switch (data.type) {
               case "roles":
                 onRoles(data.data);
+                break;
+              case "evidence":
+                if (onEvidence) onEvidence(data.data);
+                break;
+              case "web_evidence":
+                if (onWebEvidence) onWebEvidence(data.data);
                 break;
               case "status":
                 onStatus(data.agent, data.status, data.message);
@@ -243,10 +299,164 @@ export async function sendStandardMessage(sessionId: string, message: string): P
 }
 
 
+// ---------------------------------------------------------------------------
+// Document Attachment Endpoints
+// ---------------------------------------------------------------------------
+export interface PresignAttachmentResponse {
+  upload_url: string;
+  attachment_id: string;
+  context_id: string;
+  gcs_path: string;
+  expires_in_seconds: number;
+}
+
+export async function presignAttachment(params: {
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  context_id?: string;
+  session_id?: string;
+}): Promise<PresignAttachmentResponse> {
+  const res = await apiClient.post<PresignAttachmentResponse>("/attachments/presign", params);
+  return res.data;
+}
+
+export async function completeAttachment(attachmentId: string): Promise<AttachmentItem> {
+  const res = await apiClient.post<AttachmentItem>(`/attachments/${encodeURIComponent(attachmentId)}/complete`);
+  return res.data;
+}
+
+export async function deleteAttachment(attachmentId: string): Promise<void> {
+  await apiClient.delete(`/attachments/${encodeURIComponent(attachmentId)}`);
+}
+
+export async function deleteAttachmentContext(contextId: string): Promise<void> {
+  await apiClient.delete(`/attachments/contexts/${encodeURIComponent(contextId)}`);
+}
+
+export async function getAttachments(contextId: string): Promise<AttachmentItem[]> {
+  const res = await apiClient.get<AttachmentItem[]>("/attachments", {
+    params: { context_id: contextId },
+  });
+  return res.data;
+}
+
+export function uploadFileToSignedUrl(
+  uploadUrl: string,
+  file: File,
+  contentType: string,
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", contentType);
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          onProgress(pct);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Storage upload failed with status ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Network error during file upload to storage"));
+    };
+
+    xhr.send(file);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Voice Note STT Methods (Phase 4)
+// ---------------------------------------------------------------------------
+export async function presignAudioUpload(params: {
+  content_type: string;
+  size_bytes: number;
+  duration_seconds?: number;
+  language_hint?: string;
+}): Promise<AudioPresignResponse> {
+  const res = await apiClient.post<AudioPresignResponse>("/audio/presign", params);
+  return res.data;
+}
+
+export function uploadAudioBlobToGCS(
+  uploadUrl: string,
+  blob: Blob,
+  contentType: string,
+  onProgress?: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", contentType);
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          const pct = Math.round((e.loaded / e.total) * 100);
+          onProgress(pct);
+        }
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`Audio upload failed with status ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Network error during audio upload to temporary storage"));
+    };
+
+    xhr.send(blob);
+  });
+}
+
+export async function transcribeAudioNote(
+  audioId: string,
+  params: {
+    gcs_key?: string;
+    content_type?: string;
+    language_hint?: string;
+    transliterate_roman?: boolean;
+  }
+): Promise<AudioTranscribeResponse> {
+  const res = await apiClient.post<AudioTranscribeResponse>(
+    `/audio/${encodeURIComponent(audioId)}/transcribe`,
+    params
+  );
+  return res.data;
+}
+
+export async function cancelAudioUpload(audioId: string): Promise<void> {
+  try {
+    await apiClient.delete(`/audio/${encodeURIComponent(audioId)}`);
+  } catch (err) {
+    console.warn("Could not delete temporary audio object:", err);
+  }
+}
+
 export interface StandardChatAction {
   type?: string;
   action: string;
   decision_prompt: string;
+  attachment_context_id?: string;
+  web_evidence?: any;
+  web_search_mode?: string;
 }
 
 export async function streamStandardMessage(
@@ -257,8 +467,11 @@ export async function streamStandardMessage(
   onError: (error: string) => void,
   onComplete: () => void,
   abortSignal?: AbortSignal,
-  history?: Array<{ role: string; content: string }>,
-  onAction?: (actionData: StandardChatAction) => void
+  history?: Array<{ role: string; content: string; attachment_context_id?: string; web_evidence?: any; web_search_mode?: string }>,
+  onAction?: (actionData: StandardChatAction) => void,
+  attachmentContextId?: string,
+  webSearchMode?: string,
+  onSources?: (sourcesData: { sources: any[]; searched_at?: string }) => void
 ) {
   try {
     const token = localStorage.getItem("token");
@@ -267,7 +480,14 @@ export async function streamStandardMessage(
       "Content-Type": "application/json",
       "Accept-Language": currentLang,
     };
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
+    } else {
+      const guestHeaders = getGuestScopeHeaders();
+      Object.entries(guestHeaders).forEach(([k, v]) => {
+        headers[k] = v;
+      });
+    }
 
     const response = await fetch(`${apiClient.defaults.baseURL}/chat/stream_message`, {
       method: "POST",
@@ -277,6 +497,8 @@ export async function streamStandardMessage(
         message,
         language: currentLang,
         history,
+        attachment_context_id: attachmentContextId || undefined,
+        web_search_mode: webSearchMode || "auto",
       }),
       signal: abortSignal,
     });
@@ -317,7 +539,17 @@ export async function streamStandardMessage(
             const data = JSON.parse(dataStr);
             if (data.type === "action") {
               if (onAction) {
-                onAction({ action: data.action, decision_prompt: data.decision_prompt });
+                onAction({
+                  action: data.action,
+                  decision_prompt: data.decision_prompt,
+                  attachment_context_id: data.attachment_context_id,
+                  web_evidence: data.web_evidence,
+                  web_search_mode: data.web_search_mode,
+                });
+              }
+            } else if (data.type === "sources") {
+              if (onSources) {
+                onSources(data.data);
               }
             } else if (data.type === "thinking" && data.text) {
               onThinking(data.text);
@@ -343,7 +575,17 @@ export async function streamStandardMessage(
           const data = JSON.parse(dataStr);
           if (data.type === "action") {
             if (onAction) {
-              onAction({ action: data.action, decision_prompt: data.decision_prompt });
+              onAction({
+                action: data.action,
+                decision_prompt: data.decision_prompt,
+                attachment_context_id: data.attachment_context_id,
+                web_evidence: data.web_evidence,
+                web_search_mode: data.web_search_mode,
+              });
+            }
+          } else if (data.type === "sources") {
+            if (onSources) {
+              onSources(data.data);
             }
           } else if (data.type === "thinking" && data.text) {
             onThinking(data.text);
@@ -494,4 +736,13 @@ export async function getSharedMashwara(shareId: string): Promise<PublicSharedMa
       );
     }
   }
+}
+
+/**
+ * Fetches or generates V4 signed download URL for companion executive summary narration.
+ * Endpoint: POST /meetings/{meetingId}/summary-audio
+ */
+export async function getSummaryAudio(meetingId: string): Promise<SummaryAudioResponse> {
+  const response = await apiClient.post<SummaryAudioResponse>(`/meetings/${meetingId}/summary-audio`);
+  return response.data;
 }

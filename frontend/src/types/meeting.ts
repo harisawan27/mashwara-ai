@@ -11,6 +11,7 @@
 
 /** Supported board meeting template types */
 export type TemplateType =
+  | "AUTO"
   | "STARTUP_BOARD"
   | "HIRING_BOARD"
   | "FREELANCER_BOARD"
@@ -155,6 +156,14 @@ export const AGENT_INFO: Record<string, AgentInfo> = {
 // ---------------------------------------------------------------------------
 
 export const TEMPLATES: Record<TemplateType, TemplateMetadata> = {
+  AUTO: {
+    name: "Auto",
+    description: "System automatically selects the best 6 Musheers for your decision",
+    icon: "✨",
+    accentColor: "blue",
+    exampleDecision: "Any personal, professional, or complex dilemma",
+    fields: [],
+  },
   STARTUP_BOARD: {
     name: "Startup Board",
     description: "For founders making company-level strategic decisions",
@@ -247,3 +256,102 @@ export const TEMPLATES: Record<TemplateType, TemplateMetadata> = {
     ],
   },
 };
+
+// ---------------------------------------------------------------------------
+// Document Evidence & Attachment Types
+// ---------------------------------------------------------------------------
+export interface AttachmentItem {
+  id: string;
+  context_id: string;
+  filename: string;
+  content_type: string;
+  size_bytes: number;
+  status: "pending" | "uploading" | "processing" | "ready" | "error";
+  created_at?: string;
+  upload_progress?: number;
+  error?: string;
+}
+
+export interface FileEvidenceSource {
+  filename: string;
+  size_bytes?: number;
+}
+
+export interface FileEvidenceItem {
+  source: string;
+  excerpt: string;
+  page?: number;
+}
+
+export interface FileEvidencePack {
+  items: FileEvidenceItem[];
+  evidence_summary: string;
+  sources: FileEvidenceSource[];
+}
+
+export type WebSearchMode = "auto" | "on" | "off";
+
+export interface WebSourceItem {
+  id: string;
+  title: string;
+  url: string;
+  domain: string;
+  source_type: "official" | "educational" | "government" | "general";
+  accessed_at?: string;
+}
+
+export interface WebClaimItem {
+  id: string;
+  claim: string;
+  source_ids: string[];
+  confidence: "grounded" | "unverified";
+}
+
+export interface WebEvidencePack {
+  used: boolean;
+  status: "success" | "skipped" | "failed";
+  searched_at?: string;
+  freshness_required?: boolean;
+  claims: WebClaimItem[];
+  sources: WebSourceItem[];
+  uncertainties?: string[];
+  research_questions?: string[];
+  search_queries?: string[];
+  error_type?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Voice Note STT Types (Phase 4)
+// ---------------------------------------------------------------------------
+export type VoiceRecordingState =
+  | "idle"
+  | "requesting_permission"
+  | "recording"
+  | "locked"
+  | "paused"
+  | "transcribing"
+  | "error";
+
+export interface AudioPresignResponse {
+  upload_url: string;
+  audio_id: string;
+  gcs_key: string;
+  expires_in_seconds: number;
+}
+
+export interface AudioTranscribeResponse {
+  transcript: string;
+  transliterated: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Companion Summary TTS Types (Phase 5)
+// ---------------------------------------------------------------------------
+export interface SummaryAudioResponse {
+  audio_url: string;
+  cached: boolean;
+  language: string;
+  voice: string;
+}
+
+

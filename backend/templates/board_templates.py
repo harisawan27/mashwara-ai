@@ -22,6 +22,7 @@ from typing import Any, Dict, List, Optional
 class TemplateType(str, Enum):
     """Supported board meeting template types."""
 
+    AUTO = "AUTO"
     STARTUP_BOARD = "STARTUP_BOARD"
     HIRING_BOARD = "HIRING_BOARD"
     FREELANCER_BOARD = "FREELANCER_BOARD"
@@ -35,6 +36,7 @@ class TemplateType(str, Enum):
 # Each field has: key, label, type, required, options (for selects), placeholder
 
 TEMPLATE_FIELDS: Dict[TemplateType, List[Dict[str, Any]]] = {
+    TemplateType.AUTO: [],
     TemplateType.STARTUP_BOARD: [
         {"key": "company_name", "label": "Company Name", "type": "text", "required": True, "placeholder": "e.g. Acme Inc."},
         {"key": "decision_title", "label": "Decision Title", "type": "text", "required": True, "placeholder": "e.g. Should we pivot to B2B?"},
@@ -98,6 +100,14 @@ TEMPLATE_FIELDS: Dict[TemplateType, List[Dict[str, Any]]] = {
 # Template metadata (display info for frontend & agents)
 # ---------------------------------------------------------------------------
 TEMPLATE_METADATA: Dict[TemplateType, Dict[str, Any]] = {
+    TemplateType.AUTO: {
+        "name": "Auto",
+        "description": "Intelligently selects the 6 most relevant expert perspectives for your decision",
+        "icon": "✨",
+        "accent_color": "blue",
+        "example_decision": "Any personal, professional, or complex dilemma",
+        "target_audience": "anyone facing a meaningful decision",
+    },
     TemplateType.STARTUP_BOARD: {
         "name": "Startup Board",
         "description": "For founders making company-level strategic decisions",
@@ -149,6 +159,9 @@ def validate_fields(template_type: TemplateType, fields: Dict[str, Any]) -> Opti
     Validate that all required fields for the given template are present.
     Returns an error message string if validation fails, or None if valid.
     """
+    if template_type == TemplateType.AUTO:
+        return None
+
     template_fields = TEMPLATE_FIELDS.get(template_type, [])
     missing = []
 
@@ -170,13 +183,16 @@ def get_template_context(template_type: TemplateType, fields: Dict[str, Any]) ->
     Build a structured context string from the template type and user fields.
     This is injected into agent prompts so they understand the decision context.
     """
-    meta = TEMPLATE_METADATA[template_type]
-    template_fields = TEMPLATE_FIELDS[template_type]
+    if template_type == TemplateType.AUTO:
+        return ""
+
+    meta = TEMPLATE_METADATA.get(template_type, {})
+    template_fields = TEMPLATE_FIELDS.get(template_type, [])
 
     lines = [
         f"## Board Meeting Context",
-        f"**Template**: {meta['name']}",
-        f"**Target Audience**: {meta['target_audience']}",
+        f"**Template**: {meta.get('name', str(template_type))}",
+        f"**Target Audience**: {meta.get('target_audience', 'decision makers')}",
         f"",
         f"### Decision Details",
     ]

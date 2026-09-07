@@ -344,6 +344,8 @@ export default function MeetingCanvas({
             activeTab={tab}
             onTabChange={(newTab) => setTab(newTab)}
             mode="interactive"
+            meetingId={meetingId || report?.meeting_id}
+            allowAudio={true}
           />
         </div>
       </div>

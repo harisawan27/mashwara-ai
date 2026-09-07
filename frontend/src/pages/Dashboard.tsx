@@ -2,14 +2,28 @@ import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamChat, getSession, createSession, streamStandardMessage, deleteLastTurn, getMe } from "../api/client";
+import {
+  streamChat,
+  getSession,
+  createSession,
+  streamStandardMessage,
+  deleteLastTurn,
+  getMe,
+  presignAttachment,
+  uploadFileToSignedUrl,
+  completeAttachment,
+  deleteAttachment,
+} from "../api/client";
 import type { RoleInfo } from "../api/client";
+import type { AttachmentItem } from "../types/meeting";
 import { isVisibleExpert } from "../utils/roleVisibility";
 import MeetingCanvas from "../components/MeetingCanvas";
 import AuthModal from "../components/AuthModal";
 import Sidebar from "../components/Sidebar";
 import TutorialModal from "../components/TutorialModal";
 import { LocalizedBrand } from "../components/LocalizedBrand";
+import { VoiceRecorder } from "../components/VoiceRecorder";
+import SummaryAudioPlayer from "../components/SummaryAudioPlayer";
 import { useAuthStore } from "../store/authStore";
 import { useSessionStore, deriveSessionTitle } from "../store/sessionStore";
 import { TEMPLATES } from "../types/meeting";
@@ -20,8 +34,13 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   is_agentic?: boolean;
+  meeting_id?: string;
   meeting?: any;
   thinking?: string;
+  attachment_context_id?: string;
+  attachments?: AttachmentItem[];
+  web_evidence?: any;
+  web_search_mode?: string;
 }
 
 interface ActiveMeetingData {
@@ -48,7 +67,10 @@ export default function Dashboard() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("STARTUP_BOARD");
+  const [selectedTemplate, setSelectedTemplate] = useState("AUTO");
+  const [webSearchMode, setWebSearchMode] = useState<"auto" | "on" | "off">("auto");
+  const [isWebSearchDropdownOpen, setIsWebSearchDropdownOpen] = useState(false);
+  const [isResearching, setIsResearching] = useState(false);
   
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeSessionId, setActiveSessionId] = useState<string | undefined>(routeSessionId);
@@ -92,6 +114,160 @@ export default function Dashboard() {
   const endOfChatRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isStartingMashwaraRef = useRef(false);
+
+  const [attachmentContextId, setAttachmentContextId] = useState<string | null>(null);
+  const [attachedFiles, setAttachedFiles] = useState<AttachmentItem[]>([]);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const getFileIcon = (filename: string, mime?: string): string => {
+    const lower = (filename || "").toLowerCase();
+    if (lower.endsWith(".pdf") || (mime && mime.includes("pdf"))) return "📄";
+    if (lower.endsWith(".docx") || lower.endsWith(".doc")) return "📝";
+    if (lower.endsWith(".xlsx") || lower.endsWith(".csv")) return "📊";
+    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || (mime && mime.startsWith("image/"))) return "🖼️";
+    return "📃";
+  };
+
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadError(null);
+
+    if (attachedFiles.length + files.length > 5) {
+      setUploadError(t.attachments?.maxFilesExceeded || "Maximum 5 files allowed per message");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    const allowedExtensions = [".pdf", ".docx", ".txt", ".md", ".csv", ".xlsx", ".png", ".jpg", ".jpeg", ".webp"];
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const lowerName = file.name.toLowerCase();
+      const hasValidExt = allowedExtensions.some(ext => lowerName.endsWith(ext));
+      if (!hasValidExt) {
+        setUploadError(t.attachments?.unsupportedType || "Unsupported file type");
+        continue;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        setUploadError(`${file.name}: ${t.attachments?.fileTooLarge || "File exceeds 20MB limit"}`);
+        continue;
+      }
+
+      const tempId = "temp-" + Math.random().toString(36).substring(2, 9);
+      const mime = file.type || "application/octet-stream";
+
+      const newFileItem: AttachmentItem = {
+        id: tempId,
+        context_id: attachmentContextId || "",
+        filename: file.name,
+        content_type: mime,
+        size_bytes: file.size,
+        status: "uploading",
+        upload_progress: 0,
+      };
+
+      setAttachedFiles(prev => [...prev, newFileItem]);
+
+      (async () => {
+        try {
+          const presignRes = await presignAttachment({
+            filename: file.name,
+            content_type: mime,
+            size_bytes: file.size,
+            context_id: attachmentContextId || undefined,
+            session_id: activeSessionId,
+          });
+
+          setAttachmentContextId(presignRes.context_id);
+
+          setAttachedFiles(prev => prev.map(f => f.id === tempId ? {
+            ...f,
+            id: presignRes.attachment_id,
+            context_id: presignRes.context_id,
+            status: "uploading"
+          } : f));
+
+          await uploadFileToSignedUrl(
+            presignRes.upload_url,
+            file,
+            mime,
+            (progress) => {
+              setAttachedFiles(prev => prev.map(f => f.id === presignRes.attachment_id ? {
+                ...f,
+                upload_progress: progress,
+                status: progress >= 100 ? "processing" : "uploading"
+              } : f));
+            }
+          );
+
+          setAttachedFiles(prev => prev.map(f => f.id === presignRes.attachment_id ? {
+            ...f,
+            status: "processing"
+          } : f));
+
+          await completeAttachment(presignRes.attachment_id);
+
+          setAttachedFiles(prev => prev.map(f => f.id === presignRes.attachment_id ? {
+            ...f,
+            status: "ready",
+            upload_progress: 100
+          } : f));
+        } catch (err: any) {
+          console.error("Upload error:", err);
+          setAttachedFiles(prev => prev.map(f => (f.id === tempId) ? {
+            ...f,
+            status: "error",
+            error: err.message || "Failed"
+          } : f));
+          setUploadError(err.message || t.attachments?.uploadFailed || "Upload failed");
+        }
+      })();
+    }
+
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleRemoveAttachedFile = async (fileId: string) => {
+    const fileToRemove = attachedFiles.find(f => f.id === fileId);
+    setAttachedFiles(prev => prev.filter(f => f.id !== fileId));
+    if (fileToRemove && !fileToRemove.id.startsWith("temp-")) {
+      try {
+        await deleteAttachment(fileToRemove.id);
+      } catch (err) {
+        console.warn("Could not delete attachment:", err);
+      }
+    }
+    if (attachedFiles.length <= 1) {
+      setAttachmentContextId(null);
+    }
+  };
+
+  const handleVoiceTranscript = (transcript: string) => {
+    if (!transcript || !transcript.trim()) return;
+    setInput((prev) => {
+      const trimmed = prev.trim();
+      if (!trimmed) {
+        return transcript.trim();
+      }
+      return `${trimmed}\n\n${transcript.trim()}`;
+    });
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        const len = textareaRef.current.value.length;
+        textareaRef.current.selectionStart = len;
+        textareaRef.current.selectionEnd = len;
+      }
+    }, 50);
+  };
 
   // Auto-grow chat composer up to ~5 lines using actual scrollHeight
   useLayoutEffect(() => {
@@ -185,7 +361,11 @@ export default function Dashboard() {
     if (!input.trim() || isProcessing) return;
 
     const userText = input.trim();
+    const currentContextId = attachmentContextId || undefined;
+    const currentAttachedFiles = [...attachedFiles];
     setInput("");
+    setAttachedFiles([]);
+    setAttachmentContextId(null);
     setIsProcessing(true);
 
     try {
@@ -210,15 +390,29 @@ export default function Dashboard() {
       const tempUserId = Date.now().toString();
       const tempAsstId = (Date.now() + 1).toString();
       
-      setMessages(prev => [...prev, { id: tempUserId, role: "user", content: userText }]);
+      setMessages(prev => [...prev, {
+        id: tempUserId,
+        role: "user",
+        content: userText,
+        attachment_context_id: currentContextId,
+        attachments: currentAttachedFiles.length > 0 ? currentAttachedFiles : undefined,
+        web_search_mode: webSearchMode,
+      }]);
       setMessages(prev => [...prev, { id: tempAsstId, role: "assistant", content: "", thinking: "" }]);
 
       const recentHistory = messages.slice(-8).map(m => ({
         role: m.role,
-        content: m.content || ""
+        content: m.content || "",
+        attachment_context_id: m.attachment_context_id,
+        web_evidence: m.web_evidence,
+        web_search_mode: m.web_search_mode,
       }));
 
       abortControllerRef.current = new AbortController();
+
+      if (webSearchMode !== "off") {
+        setIsResearching(true);
+      }
 
       await streamStandardMessage(
         token ? (sessionId as string) : null,
@@ -232,20 +426,41 @@ export default function Dashboard() {
         (error) => {
           console.error(error);
           setIsProcessing(false);
+          setIsResearching(false);
         },
         () => {
           setIsProcessing(false);
+          setIsResearching(false);
         },
         abortControllerRef.current.signal,
         recentHistory,
         async (actionData) => {
           if (actionData.action === "start_mashwara") {
             const canonicalDilemma = actionData.decision_prompt || userText;
+            const inheritedContextId = actionData.attachment_context_id || currentContextId;
+            const inheritedWebEvidence = actionData.web_evidence;
+            const inheritedSearchMode = actionData.web_search_mode || webSearchMode;
             abortControllerRef.current?.abort();
             setIsProcessing(false);
+            setIsResearching(false);
             setMessages(prev => prev.map(m => m.id === tempAsstId ? { ...m, content: t.chat.conveneNotice, is_agentic: true } : m));
-            await startMashwara(canonicalDilemma, tempAsstId);
+            await startMashwara(canonicalDilemma, tempAsstId, inheritedContextId, inheritedWebEvidence, inheritedSearchMode);
           }
+        },
+        currentContextId,
+        webSearchMode,
+        (sourcesData) => {
+          setIsResearching(false);
+          // Attach web evidence to the substantive user message and assistant turn
+          setMessages(prev => prev.map(m => {
+            if (m.id === tempUserId) {
+              return { ...m, web_evidence: sourcesData, web_search_mode: webSearchMode };
+            }
+            if (m.id === tempAsstId) {
+              return { ...m, web_evidence: sourcesData };
+            }
+            return m;
+          }));
         }
       );
     } catch (err) {
@@ -314,7 +529,13 @@ export default function Dashboard() {
     }
   };
 
-  const startMashwara = async (dilemmaText: string, existingAsstMsgId?: string) => {
+  const startMashwara = async (
+    dilemmaText: string,
+    existingAsstMsgId?: string,
+    attachedContextId?: string,
+    inheritedWebEvidence?: any,
+    inheritedSearchMode?: string
+  ) => {
     const userText = dilemmaText.trim();
     if (!userText || isStartingMashwaraRef.current) return;
 
@@ -449,7 +670,7 @@ export default function Dashboard() {
         },
         abortControllerRef.current.signal,
         // onFinal: replace raw streamed text with clean post-processed version
-        (agent, text, thinking) => {
+        (agent: string, text: string, thinking: string) => {
           if (!isVisibleExpert({ key: agent })) return;
           setActiveMeetingData((prev: ActiveMeetingData | null) => {
             if (!prev || !prev.streams) return prev;
@@ -463,10 +684,18 @@ export default function Dashboard() {
           });
         },
         // onChatSummary: replace convening notice in chat with rich companion summary
-        (summaryText) => {
+        (summaryText: string) => {
           if (targetAsstId && summaryText) {
             setMessages(prev => prev.map(m => m.id === targetAsstId ? { ...m, content: summaryText, is_agentic: true } : m));
           }
+        },
+        attachedContextId,
+        undefined, // onEvidence
+        inheritedSearchMode || webSearchMode,
+        inheritedWebEvidence,
+        (webEv: any) => {
+          // Attach web evidence to the meeting data and user turn
+          setActiveMeetingData(prev => prev ? { ...prev, webEvidence: webEv } : prev);
         }
       );
 
@@ -480,8 +709,11 @@ export default function Dashboard() {
   const handleConveneBoard = async () => {
     if (!input.trim() || isProcessing) return;
     const userText = input.trim();
+    const currentContextId = attachmentContextId || undefined;
     setInput("");
-    await startMashwara(userText);
+    setAttachedFiles([]);
+    setAttachmentContextId(null);
+    await startMashwara(userText, undefined, currentContextId);
   };
 
   return (
@@ -633,6 +865,20 @@ export default function Dashboard() {
                       <>
                         <div className="bg-blue-600 text-white rounded-2xl rounded-tr-sm px-4 sm:px-5 py-3 sm:py-3.5 shadow-lg text-sm leading-relaxed whitespace-pre-wrap">
                           {msg.content}
+                          {msg.attachments && msg.attachments.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-blue-500/40">
+                              {msg.attachments.map((att) => (
+                                <span
+                                  key={att.id || att.filename}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-blue-700/60 text-white border border-blue-400/30 shadow-sm"
+                                >
+                                  <span>{getFileIcon(att.filename, att.content_type)}</span>
+                                  <span className="max-w-[160px] truncate">{att.filename}</span>
+                                  <span className="text-[10px] opacity-75">({formatFileSize(att.size_bytes)})</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-1 mt-1 mr-1 text-slate-400">
                           {isLastUserMessage && (
@@ -698,6 +944,30 @@ export default function Dashboard() {
                           {text && (
                           <div className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-slate-200 rounded-2xl rounded-tl-sm px-3 sm:px-5 py-3 sm:py-3.5 shadow-sm text-sm leading-relaxed prose prose-slate dark:prose-invert max-w-none overflow-x-auto">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+                            {(() => {
+                              const sources = msg.web_evidence?.sources || (index > 0 && messages[index - 1]?.role === "user" ? messages[index - 1]?.web_evidence?.sources : null);
+                              if (!sources || sources.length === 0) return null;
+                              return (
+                                <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2.5 border-t border-slate-200/70 dark:border-slate-800 not-prose">
+                                  <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
+                                    <span>🌐</span> {t.webSearch?.sourcesTitle || "Sources"}:
+                                  </span>
+                                  {sources.map((s: any) => (
+                                    <a
+                                      key={s.id || s.url}
+                                      href={s.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-blue-600 dark:text-blue-400 transition-colors"
+                                      title={s.title || s.domain}
+                                    >
+                                      <span className="max-w-[140px] truncate">{s.title || s.domain}</span>
+                                      <span className="text-[9px] text-slate-400">↗</span>
+                                    </a>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                           )}
                           {!text && !thinking && isProcessing && index === messages.length - 1 && !msg.is_agentic && (
@@ -714,6 +984,14 @@ export default function Dashboard() {
                           </>
                         );
                       })()}
+                      {(() => {
+                        const targetMeetingId = msg.meeting_id || msg.meeting?.id || (msg.is_agentic ? activeMeetingData?.id : undefined);
+                        const isFinished = !(isProcessing && index === messages.length - 1);
+                        if (msg.is_agentic && targetMeetingId && isFinished) {
+                          return <SummaryAudioPlayer meetingId={targetMeetingId} />;
+                        }
+                        return null;
+                      })()}
                       {msg.is_agentic && (
                         <button 
                           onClick={() => {
@@ -725,7 +1003,7 @@ export default function Dashboard() {
 
                               setActiveMeetingData({
                                 id: msg.meeting?.id,
-                                template: msg.meeting?.template || "STARTUP_BOARD",
+                                template: msg.meeting?.template || "AUTO",
                                 decisionTitle: msg.meeting?.prompt || t.canvas.boardMeeting,
                                 report: msg.meeting?.report_data,
                                 rolesInfo: dbStreamsData._roles || [],
@@ -763,6 +1041,50 @@ export default function Dashboard() {
           <div className="max-w-3xl mx-auto relative pointer-events-auto">
             <div className={`bg-white dark:bg-slate-900/90 backdrop-blur-md border rounded-2xl shadow-lg dark:shadow-none overflow-visible transition-all ${isConveneBoardSelected ? 'border-blue-500/50 shadow-blue-500/10 ring-1 ring-blue-500/20' : 'border-slate-200 dark:border-white/10 focus-within:ring-2 focus-within:ring-blue-500/50'}`}>
               
+              {/* Attached file chips in composer */}
+              {attachedFiles.length > 0 && (
+                <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1 border-b border-slate-100 dark:border-white/[0.06]">
+                  {attachedFiles.map((file) => (
+                    <div
+                      key={file.id}
+                      className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm transition-all"
+                    >
+                      <span className="text-sm">{getFileIcon(file.filename, file.content_type)}</span>
+                      <span className="max-w-[140px] sm:max-w-[200px] truncate">{file.filename}</span>
+                      <span className="text-[10px] text-slate-400">({formatFileSize(file.size_bytes)})</span>
+                      {file.status === "uploading" || file.status === "processing" ? (
+                        <span className="flex items-center gap-1 text-[10px] text-blue-500">
+                          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          {file.status === "uploading" ? `${file.upload_progress || 0}%` : (t.attachments?.processing || "Processing...")}
+                        </span>
+                      ) : file.status === "ready" ? (
+                        <span className="text-emerald-500 text-xs font-bold" title={t.attachments?.ready || "Ready"}>✓</span>
+                      ) : (
+                        <span className="text-red-500 text-xs font-bold" title={file.error || t.attachments?.error || "Error"}>⚠️</span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachedFile(file.id)}
+                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 rounded transition-colors"
+                        title={t.attachments?.remove || "Remove"}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {uploadError && (
+                <div className="px-4 pt-2 text-xs text-red-500 font-medium flex items-center gap-1">
+                  <span>⚠️</span>
+                  <span>{uploadError}</span>
+                </div>
+              )}
+
               <textarea
                 ref={textareaRef}
                 value={input}
@@ -822,9 +1144,109 @@ export default function Dashboard() {
                     </svg>
                     {t.chat.conveneToggle}
                   </button>
+
+                  {/* Paperclip file attach button */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessing || attachedFiles.length >= 5}
+                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${attachedFiles.length > 0 ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                    title={t.attachments?.attachTooltip || "Attach documents"}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    {attachedFiles.length > 0 && (
+                      <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                        {attachedFiles.length}
+                      </span>
+                    )}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.png,.jpg,.jpeg,.webp"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+
+                  {/* Web Research Mode Dropdown */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setIsWebSearchDropdownOpen(!isWebSearchDropdownOpen)}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        webSearchMode === 'off'
+                          ? 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
+                          : webSearchMode === 'on'
+                          ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/40'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
+                      }`}
+                      title={t.webSearch?.tooltip || "Web Research (Auto / On / Off)"}
+                    >
+                      <span className="text-sm">🌐</span>
+                      <span>
+                        {webSearchMode === 'auto'
+                          ? (t.webSearch?.modeAuto || "Auto")
+                          : webSearchMode === 'on'
+                          ? (t.webSearch?.modeOn || "On")
+                          : (t.webSearch?.modeOff || "Off")}
+                      </span>
+                      <svg className={`w-3 h-3 transition-transform ${isWebSearchDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
+                    {isWebSearchDropdownOpen && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setIsWebSearchDropdownOpen(false)} />
+                        <div className={`absolute bottom-full ${isRTL ? "right-0" : "left-0"} mb-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in text-xs`}>
+                          {(['auto', 'on', 'off'] as const).map((m) => (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => {
+                                setWebSearchMode(m);
+                                setIsWebSearchDropdownOpen(false);
+                              }}
+                              className={`w-full text-start px-3.5 py-2.5 flex items-center justify-between transition-colors ${
+                                webSearchMode === m
+                                  ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
+                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
+                              }`}
+                            >
+                              <span>
+                                {m === 'auto'
+                                  ? (t.webSearch?.modeAuto || "Auto Research")
+                                  : m === 'on'
+                                  ? (t.webSearch?.modeOn || "Research On")
+                                  : (t.webSearch?.modeOff || "Research Off")}
+                              </span>
+                              {webSearchMode === m && <span className="text-blue-500 font-bold">✓</span>}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 pr-1">
+                  {isResearching && (
+                    <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 animate-pulse px-2.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 rounded-full font-medium">
+                      <svg className="w-3 h-3 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      <span>{t.webSearch?.researching || "Searching the web..."}</span>
+                    </span>
+                  )}
+                  {!isProcessing && (
+                    <VoiceRecorder
+                      onTranscriptReady={handleVoiceTranscript}
+                      disabled={isProcessing}
+                    />
+                  )}
                   {isProcessing ? (
                     <button
                       onClick={() => {
@@ -850,9 +1272,9 @@ export default function Dashboard() {
                   ) : (
                     <button
                       onClick={handleSend}
-                      disabled={!input.trim()}
+                      disabled={!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing")}
                       className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm ${
-                        !input.trim()
+                        (!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing"))
                           ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
                           : isConveneBoardSelected
                           ? 'bg-gradient-to-r from-blue-600 to-blue-800 text-white hover:scale-105 shadow-blue-500/20'

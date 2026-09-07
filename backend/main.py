@@ -9,6 +9,8 @@ All API keys are loaded from environment variables via .env file.
 """
 
 import os
+import sys
+import dis
 import uuid
 import logging
 import json
@@ -28,7 +30,7 @@ try:
     from pydantic import EmailStr
 except Exception:
     EmailStr = str
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from fastapi import FastAPI, Request, Depends, HTTPException, status
@@ -51,6 +53,53 @@ from models.user import User
 from models.meeting import Meeting
 from models.chat import ChatSession, ChatMessage
 from models.shared_mashwara import SharedMashwara, utc_now_naive
+from models.attachment import AttachmentContext, Attachment
+from tools.storage import (
+    generate_v4_upload_signed_url,
+    verify_uploaded_object,
+    delete_blob,
+    delete_prefix,
+    ALLOWED_MIME_TYPES,
+    MAX_FILE_SIZE_BYTES,
+    BUCKET_NAME,
+    MAX_VOICE_AUDIO_SIZE_BYTES,
+    MAX_VOICE_DURATION_SECONDS,
+    ALLOWED_AUDIO_MIMES,
+    validate_audio_metadata,
+    build_audio_storage_key,
+    build_tts_storage_key,
+    storage_client,
+    save_blob_bytes,
+    blob_exists,
+    generate_signed_download_url,
+    delete_tts_cache_for_user,
+    delete_tts_cache_for_guest,
+)
+from agents.tts import (
+    prepare_summary_for_speech,
+    resolve_speech_language,
+    compute_tts_cache_key,
+    synthesize_speech,
+    pcm_to_wav,
+    TTS_MODEL,
+    TTS_VOICE,
+)
+from agents.transcription import (
+    transcribe_voice_note,
+)
+from agents.evidence_extractor import (
+    ingest_attachment_to_store,
+    extract_evidence_pack,
+    format_evidence_for_prompt,
+    delete_gemini_store,
+    FileEvidencePack,
+)
+from agents.web_research import (
+    execute_web_research,
+    format_web_evidence_for_prompt,
+    WebEvidencePack,
+)
+import hashlib
 from security.auth import (
     get_password_hash,
     verify_password,
@@ -160,12 +209,71 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class PresignAttachmentRequest(BaseModel):
+    filename: str
+    content_type: str
+    size_bytes: int
+    context_id: Optional[str] = None
+    session_id: Optional[str] = None
+
+class PresignAttachmentResponse(BaseModel):
+    upload_url: str
+    attachment_id: str
+    context_id: str
+    gcs_path: str
+    expires_in_seconds: int = 300
+
+class CompleteAttachmentResponse(BaseModel):
+    id: str
+    context_id: str
+    filename: str
+    status: str
+    size_bytes: int
+    content_type: str
+
+class AttachmentItemResponse(BaseModel):
+    id: str
+    context_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    status: str
+    created_at: datetime.datetime
+
+# ---------------------------------------------------------------------------
+# Voice Note STT Schemas (Phase 4)
+# ---------------------------------------------------------------------------
+class AudioPresignRequest(BaseModel):
+    content_type: str = Field(..., description="Audio MIME type (e.g. audio/webm, audio/mp4)")
+    size_bytes: int = Field(..., description="Audio recording byte size")
+    duration_seconds: Optional[float] = Field(None, description="Active recording duration in seconds")
+    language_hint: Optional[str] = Field("roman-ur", description="Target consultation language hint")
+
+class AudioPresignResponse(BaseModel):
+    upload_url: str
+    audio_id: str
+    gcs_key: str
+    expires_in_seconds: int = 300
+
+class AudioTranscribeRequest(BaseModel):
+    gcs_key: Optional[str] = Field(None, description="Temporary GCS storage key")
+    content_type: Optional[str] = Field("audio/webm", description="Audio MIME type")
+    language_hint: Optional[str] = Field("roman-ur", description="Transcription language: ur, roman-ur, en")
+    transliterate_roman: Optional[bool] = Field(True, description="Whether to transliterate Urdu script to Roman Urdu")
+
+class AudioTranscribeResponse(BaseModel):
+    transcript: str
+    transliterated: bool = False
+
 class ChatRequest(BaseModel):
     """Input schema for a streaming chat request."""
     template: str = Field(default="STARTUP_BOARD", description="Board template context")
     prompt: str = Field(..., description="The user's raw decision prompt")
     session_id: Optional[str] = Field(None, description="The chat session ID")
     language: Optional[str] = Field(None, description="Authoritative frontend language (ur, roman-ur, en)")
+    attachment_context_id: Optional[str] = Field(None, description="Associated document context ID")
+    web_search_mode: Optional[str] = Field("auto", description="Web research mode: auto | on | off")
+    web_evidence: Optional[Dict[str, Any]] = Field(None, description="Pre-computed or inherited WebEvidencePack")
 
 class SessionRenameRequest(BaseModel):
     title: str
@@ -175,6 +283,8 @@ class StandardMessageRequest(BaseModel):
     message: str
     language: Optional[str] = None
     history: Optional[List[Dict[str, Any]]] = None
+    attachment_context_id: Optional[str] = None
+    web_search_mode: Optional[str] = "auto"
 
 class GoogleAuthRequest(BaseModel):
     credential: str
@@ -194,6 +304,10 @@ class ChatMessageResponse(BaseModel):
     thinking: Optional[str] = None
     is_agentic: bool
     meeting: Optional[MeetingResponse] = None
+    attachment_context_id: Optional[str] = None
+    attachments: Optional[List[AttachmentItemResponse]] = None
+    web_evidence: Optional[Dict[str, Any]] = None
+    web_search_mode: Optional[str] = "auto"
     created_at: datetime.datetime
 
 class ChatSessionResponse(BaseModel):
@@ -219,6 +333,12 @@ class PublicSharedMashwaraResponse(BaseModel):
     decision_title: str
     snapshot: Dict[str, Any]
     created_at: str
+
+class SummaryAudioResponse(BaseModel):
+    audio_url: str
+    cached: bool
+    language: str
+    voice: str = "Charon"
 
 def derive_session_title(text: str) -> str:
     cleaned = (text or "").strip()
@@ -426,8 +546,39 @@ async def update_profile(profile: ProfileUpdate, current_user: User = Depends(ge
     await db.commit()
     return {"status": "success", "profile_data": current_user.profile_data}
 
+def get_session_load_options():
+    return [
+        selectinload(ChatSession.messages).selectinload(ChatMessage.meeting),
+        selectinload(ChatSession.messages).selectinload(ChatMessage.attachment_context).selectinload(AttachmentContext.attachments),
+    ]
+
 @app.delete("/auth/me", tags=["Auth"])
 async def delete_account(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    ac_result = await db.execute(
+        select(AttachmentContext)
+        .options(selectinload(AttachmentContext.attachments))
+        .filter(AttachmentContext.user_id == current_user.id)
+    )
+    for ctx in ac_result.scalars().all():
+        for att in ctx.attachments:
+            if att.gcs_path:
+                try:
+                    delete_blob(att.gcs_path)
+                except Exception as e:
+                    logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+        if ctx.gemini_store_name:
+            try:
+                delete_gemini_store(ctx.gemini_store_name)
+            except Exception as e:
+                logger.warning(f"Error deleting Gemini store {ctx.gemini_store_name}: {e}")
+        await db.delete(ctx)
+
+    # Idempotently clean up all TTS narration cache for the deleted user
+    try:
+        delete_tts_cache_for_user(str(current_user.id))
+    except Exception as e:
+        logger.warning(f"Error cleaning up TTS cache for user {current_user.id}: {e}")
+
     await db.delete(current_user)
     await db.commit()
     return {"status": "success", "detail": "Account deleted"}
@@ -441,6 +592,28 @@ async def get_meetings(current_user: User = Depends(get_current_user), db: Async
     )
     return result.scalars().all()
 
+@app.delete("/meetings/{meeting_id}", tags=["Meetings"])
+async def delete_meeting(
+    meeting_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Meeting).filter(Meeting.id == meeting_id, Meeting.user_id == current_user.id)
+    )
+    meeting = result.scalars().first()
+    if not meeting:
+        raise HTTPException(status_code=404, detail="Meeting not found")
+
+    try:
+        delete_tts_cache_for_user(str(current_user.id), meeting_id)
+    except Exception as e:
+        logger.warning(f"Error cleaning up TTS cache for meeting {meeting_id}: {e}")
+
+    await db.delete(meeting)
+    await db.commit()
+    return {"status": "success"}
+
 # ---------------------------------------------------------------------------
 # Sessions & Standard Chat
 # ---------------------------------------------------------------------------
@@ -452,7 +625,7 @@ async def create_session(current_user: User = Depends(get_current_user), db: Asy
     
     result = await db.execute(
         select(ChatSession)
-        .options(selectinload(ChatSession.messages).selectinload(ChatMessage.meeting))
+        .options(*get_session_load_options())
         .filter(ChatSession.id == session.id)
     )
     return result.scalars().first()
@@ -461,7 +634,7 @@ async def create_session(current_user: User = Depends(get_current_user), db: Asy
 async def get_sessions(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ChatSession)
-        .options(selectinload(ChatSession.messages).selectinload(ChatMessage.meeting))
+        .options(*get_session_load_options())
         .filter(ChatSession.user_id == current_user.id)
         .order_by(ChatSession.updated_at.desc())
     )
@@ -471,7 +644,7 @@ async def get_sessions(current_user: User = Depends(get_current_user), db: Async
 async def get_session(session_id: str, current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(ChatSession)
-        .options(selectinload(ChatSession.messages).selectinload(ChatMessage.meeting))
+        .options(*get_session_load_options())
         .filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id)
     )
     session = result.scalars().first()
@@ -488,7 +661,7 @@ async def rename_session(
 ):
     result = await db.execute(
         select(ChatSession)
-        .options(selectinload(ChatSession.messages).selectinload(ChatMessage.meeting))
+        .options(*get_session_load_options())
         .filter(ChatSession.id == session_id, ChatSession.user_id == current_user.id)
     )
     session = result.scalars().first()
@@ -512,7 +685,41 @@ async def delete_session(
     session = result.scalars().first()
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    
+
+    ac_result = await db.execute(
+        select(AttachmentContext)
+        .options(selectinload(AttachmentContext.attachments))
+        .filter(AttachmentContext.session_id == session.id)
+    )
+    for ctx in ac_result.scalars().all():
+        for att in ctx.attachments:
+            if att.gcs_path:
+                try:
+                    delete_blob(att.gcs_path)
+                except Exception as e:
+                    logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+        if ctx.gemini_store_name:
+            try:
+                delete_gemini_store(ctx.gemini_store_name)
+            except Exception as e:
+                logger.warning(f"Error deleting Gemini store {ctx.gemini_store_name}: {e}")
+        await db.delete(ctx)
+
+    # Clean up TTS cache for any meetings in this session
+    try:
+        msg_res = await db.execute(
+            select(ChatMessage.meeting_id).filter(
+                ChatMessage.session_id == session.id,
+                ChatMessage.meeting_id.isnot(None)
+            )
+        )
+        for row in msg_res.all():
+            m_id = row[0]
+            if m_id:
+                delete_tts_cache_for_user(str(current_user.id), m_id)
+    except Exception as e:
+        logger.warning(f"Error cleaning up TTS cache for session {session_id}: {e}")
+
     await db.delete(session)
     await db.commit()
     return {"status": "success"}
@@ -542,6 +749,11 @@ async def delete_last_turn(
     
     # Check if the last message is assistant and second to last is user
     if len(history) >= 2 and history[0].role == "assistant" and history[1].role == "user":
+        if getattr(history[0], "meeting_id", None):
+            try:
+                delete_tts_cache_for_user(str(current_user.id), history[0].meeting_id)
+            except Exception as e:
+                logger.warning(f"Error cleaning up TTS cache for meeting {history[0].meeting_id}: {e}")
         await db.delete(history[0])
         await db.delete(history[1])
         await db.commit()
@@ -550,6 +762,534 @@ async def delete_last_turn(
         await db.commit()
         
     return {"status": "success"}
+
+# ---------------------------------------------------------------------------
+# Document Attachments & Evidence Layer Endpoints
+# ---------------------------------------------------------------------------
+def get_guest_scope(request: Request) -> Tuple[Optional[str], Optional[str]]:
+    scope_id = request.headers.get("x-guest-scope-id")
+    secret = request.headers.get("x-guest-scope-secret")
+    return (scope_id.strip() if scope_id else None), (secret.strip() if secret else None)
+
+def hash_guest_secret(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()
+
+def verify_context_auth(
+    context: AttachmentContext,
+    current_user: Optional[User],
+    guest_scope_id: Optional[str],
+    guest_secret: Optional[str]
+):
+    if context.user_id is not None:
+        if not current_user or str(current_user.id) != str(context.user_id):
+            raise HTTPException(status_code=403, detail="Forbidden: attachment context belongs to a different user")
+        return
+    # Guest context
+    if not guest_scope_id or context.guest_scope_id != guest_scope_id:
+        raise HTTPException(status_code=403, detail="Forbidden: guest scope mismatch")
+    if context.guest_scope_secret_hash:
+        if not guest_secret or hash_guest_secret(guest_secret) != context.guest_scope_secret_hash:
+            raise HTTPException(status_code=403, detail="Forbidden: invalid guest secret")
+
+@app.post("/attachments/presign", response_model=PresignAttachmentResponse, tags=["Attachments"])
+@limiter.limit("20/minute")
+async def presign_attachment(
+    request: Request,
+    body: PresignAttachmentRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    clean_mime = (body.content_type or "").strip().lower()
+    if clean_mime not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type '{clean_mime}'. Allowed types: PDF, DOCX, TXT, MD, CSV, XLSX, PNG, JPG, WEBP."
+        )
+
+    if body.size_bytes <= 0 or body.size_bytes > MAX_FILE_SIZE_BYTES:
+        raise HTTPException(
+            status_code=400,
+            detail="File size exceeds maximum allowed limit (20MB per file)."
+        )
+
+    clean_filename = os.path.basename(body.filename.strip())
+    if not clean_filename:
+        clean_filename = "attachment"
+
+    guest_scope_id, guest_secret = get_guest_scope(request)
+    context = None
+
+    if body.context_id:
+        result = await db.execute(
+            select(AttachmentContext)
+            .options(selectinload(AttachmentContext.attachments))
+            .filter(AttachmentContext.id == body.context_id)
+        )
+        context = result.scalars().first()
+        if not context:
+            raise HTTPException(status_code=404, detail="Attachment context not found")
+        verify_context_auth(context, current_user, guest_scope_id, guest_secret)
+        if context.sealed_at:
+            raise HTTPException(status_code=400, detail="Attachment context is sealed and cannot accept new files")
+        if len(context.attachments) >= 5:
+            raise HTTPException(status_code=400, detail="Maximum 5 attachments allowed per message")
+        total_size = sum(a.size_bytes for a in context.attachments) + body.size_bytes
+        if total_size > 50 * 1024 * 1024:
+            raise HTTPException(status_code=400, detail="Total attachments size exceeds 50MB limit")
+    else:
+        context_id = str(uuid.uuid4())
+        secret_hash = hash_guest_secret(guest_secret) if (not current_user and guest_secret) else None
+        context = AttachmentContext(
+            id=context_id,
+            user_id=current_user.id if current_user else None,
+            session_id=body.session_id if current_user else None,
+            guest_scope_id=guest_scope_id if not current_user else None,
+            guest_scope_secret_hash=secret_hash,
+            status="uploading",
+        )
+        db.add(context)
+        await db.flush()
+
+    attachment_id = str(uuid.uuid4())
+    if current_user:
+        gcs_path = f"users/{current_user.id}/attachments/{context.id}/{attachment_id}/{clean_filename}"
+    else:
+        g_scope = guest_scope_id or "anonymous"
+        gcs_path = f"ephemeral/{g_scope}/{context.id}/{attachment_id}/{clean_filename}"
+
+    upload_url = generate_v4_upload_signed_url(
+        object_name=gcs_path,
+        content_type=clean_mime,
+        expires_minutes=5
+    )
+
+    new_att = Attachment(
+        id=attachment_id,
+        context_id=context.id,
+        user_id=current_user.id if current_user else None,
+        filename=clean_filename,
+        content_type=clean_mime,
+        size_bytes=body.size_bytes,
+        gcs_path=gcs_path,
+        status="pending",
+    )
+    db.add(new_att)
+    await db.commit()
+
+    return PresignAttachmentResponse(
+        upload_url=upload_url,
+        attachment_id=attachment_id,
+        context_id=context.id,
+        gcs_path=gcs_path,
+        expires_in_seconds=300,
+    )
+
+@app.post("/attachments/{attachment_id}/complete", response_model=CompleteAttachmentResponse, tags=["Attachments"])
+@limiter.limit("20/minute")
+async def complete_attachment(
+    request: Request,
+    attachment_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Attachment)
+        .options(selectinload(Attachment.context))
+        .filter(Attachment.id == attachment_id)
+    )
+    att = result.scalars().first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    context = att.context
+    guest_scope_id, guest_secret = get_guest_scope(request)
+    verify_context_auth(context, current_user, guest_scope_id, guest_secret)
+
+    if att.status == "ready":
+        return CompleteAttachmentResponse(
+            id=att.id,
+            context_id=context.id,
+            filename=att.filename,
+            status="ready",
+            size_bytes=att.size_bytes,
+            content_type=att.content_type,
+        )
+
+    exists, actual_size, actual_content_type = verify_uploaded_object(att.gcs_path)
+    if not exists:
+        raise HTTPException(status_code=400, detail="File was not uploaded to storage")
+
+    att.size_bytes = actual_size
+    att.status = "processing"
+    await db.commit()
+
+    try:
+        await ingest_attachment_to_store(db, context, att)
+        att.status = "ready"
+        context.status = "ready"
+        await db.commit()
+    except Exception as e:
+        logger.error(f"Error ingesting attachment {att.id}: {e}", exc_info=True)
+        att.status = "error"
+        await db.commit()
+        raise HTTPException(status_code=500, detail=f"Failed to process document: {str(e)}")
+
+    return CompleteAttachmentResponse(
+        id=att.id,
+        context_id=context.id,
+        filename=att.filename,
+        status="ready",
+        size_bytes=att.size_bytes,
+        content_type=att.content_type,
+    )
+
+@app.delete("/attachments/{attachment_id}", tags=["Attachments"])
+async def delete_attachment_endpoint(
+    request: Request,
+    attachment_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(Attachment)
+        .options(selectinload(Attachment.context))
+        .filter(Attachment.id == attachment_id)
+    )
+    att = result.scalars().first()
+    if not att:
+        raise HTTPException(status_code=404, detail="Attachment not found")
+
+    context = att.context
+    guest_scope_id, guest_secret = get_guest_scope(request)
+    verify_context_auth(context, current_user, guest_scope_id, guest_secret)
+
+    if context.sealed_at:
+        raise HTTPException(status_code=400, detail="Cannot remove attachment from sealed context")
+
+    try:
+        delete_blob(att.gcs_path)
+    except Exception as e:
+        logger.warning(f"Error deleting blob {att.gcs_path}: {e}")
+
+    await db.delete(att)
+    await db.commit()
+    return {"status": "success"}
+
+@app.delete("/attachments/contexts/{context_id}", tags=["Attachments"])
+async def delete_attachment_context_endpoint(
+    request: Request,
+    context_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(AttachmentContext)
+        .options(selectinload(AttachmentContext.attachments))
+        .filter(AttachmentContext.id == context_id)
+    )
+    context = result.scalars().first()
+    if not context:
+        raise HTTPException(status_code=404, detail="Attachment context not found")
+
+    guest_scope_id, guest_secret = get_guest_scope(request)
+    verify_context_auth(context, current_user, guest_scope_id, guest_secret)
+
+    for att in context.attachments:
+        try:
+            k = getattr(att, "storage_key", None) or getattr(att, "gcs_path", None)
+            if k:
+                delete_blob(k)
+        except Exception as e:
+            logger.warning(f"Error deleting blob for att {att.id}: {e}")
+
+    if context.gemini_store_name:
+        try:
+            delete_gemini_store(context.gemini_store_name)
+        except Exception as e:
+            logger.warning(f"Error deleting Gemini store: {e}")
+
+    if context.guest_scope_id:
+        try:
+            delete_tts_cache_for_guest(context.guest_scope_id)
+            delete_prefix(f"ephemeral/{context.guest_scope_id}/")
+        except Exception as e:
+            logger.warning(f"Error deleting guest TTS cache for {context.guest_scope_id}: {e}")
+
+    await db.delete(context)
+    await db.commit()
+    return {"status": "success"}
+
+@app.get("/attachments", response_model=List[AttachmentItemResponse], tags=["Attachments"])
+async def list_attachments(
+    request: Request,
+    context_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    result = await db.execute(
+        select(AttachmentContext)
+        .options(selectinload(AttachmentContext.attachments))
+        .filter(AttachmentContext.id == context_id)
+    )
+    context = result.scalars().first()
+    if not context:
+        raise HTTPException(status_code=404, detail="Attachment context not found")
+
+    guest_scope_id, guest_secret = get_guest_scope(request)
+    verify_context_auth(context, current_user, guest_scope_id, guest_secret)
+
+    return [
+        AttachmentItemResponse(
+            id=a.id,
+            context_id=getattr(a, "attachment_context_id", None) or getattr(a, "context_id", ""),
+            filename=getattr(a, "display_filename", None) or getattr(a, "filename", ""),
+            content_type=getattr(a, "mime_type", None) or getattr(a, "content_type", ""),
+            size_bytes=a.size_bytes,
+            status=a.status,
+            created_at=a.created_at,
+        )
+        for a in context.attachments
+    ]
+
+# ---------------------------------------------------------------------------
+# Internal Guest Resource Cleanup (Cloud Scheduler / Idempotent Maintenance)
+# ---------------------------------------------------------------------------
+async def cleanup_expired_guest_attachment_contexts(db: AsyncSession) -> Dict[str, Any]:
+    """
+    Finds and purges expired guest AttachmentContext rows, their Attachment rows,
+    associated GCS blobs, and Gemini FileSearchStore instances.
+    Safe against partially deleted resources; idempotent and retryable.
+    """
+    now_utc = datetime.datetime.utcnow()
+    res = await db.execute(
+        select(AttachmentContext)
+        .options(selectinload(AttachmentContext.attachments))
+        .filter(
+            AttachmentContext.user_id.is_(None),
+            AttachmentContext.expires_at.is_not(None),
+            AttachmentContext.expires_at < now_utc
+        )
+    )
+    expired_contexts = res.scalars().all()
+
+    cleaned_contexts = 0
+    cleaned_attachments = 0
+    cleaned_stores = 0
+    cleaned_gcs_blobs = 0
+    errors = 0
+
+    for ctx in expired_contexts:
+        try:
+            # 1. Delete Gemini FileSearchStore
+            if ctx.gemini_store_name:
+                try:
+                    delete_gemini_store(ctx.gemini_store_name)
+                    cleaned_stores += 1
+                except Exception as store_err:
+                    logger.warning(f"Error deleting store {ctx.gemini_store_name} for ctx {ctx.id}: {store_err}")
+
+            # 2. Delete GCS objects
+            for att in ctx.attachments:
+                try:
+                    storage_key = getattr(att, "storage_key", None) or getattr(att, "gcs_path", None)
+                    if storage_key:
+                        delete_blob(storage_key)
+                        cleaned_gcs_blobs += 1
+                except Exception as gcs_err:
+                    logger.warning(f"Error deleting GCS object {att.id}: {gcs_err}")
+
+            if ctx.guest_scope_id:
+                try:
+                    from tools.storage import delete_prefix
+                    delete_prefix(f"guest/{ctx.guest_scope_id}/{ctx.id}/")
+                except Exception:
+                    pass
+
+            # 3. Delete attachments & context from DB
+            cleaned_attachments += len(ctx.attachments)
+            await db.delete(ctx)
+            await db.commit()
+            cleaned_contexts += 1
+        except Exception as e:
+            await db.rollback()
+            errors += 1
+            logger.error(f"Failed cleaning up guest context {ctx.id}: {e}")
+
+    return {
+        "cleaned_contexts": cleaned_contexts,
+        "cleaned_attachments": cleaned_attachments,
+        "cleaned_stores": cleaned_stores,
+        "cleaned_gcs_blobs": cleaned_gcs_blobs,
+        "errors": errors
+    }
+
+
+async def verify_internal_scheduler_auth(request: Request):
+    """
+    Verifies that the request comes from authorized Google Cloud Scheduler (OIDC)
+    or matches the INTERNAL_CLEANUP_TOKEN secret header.
+    """
+    auth_header = request.headers.get("Authorization", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+
+    # 1. Check INTERNAL_CLEANUP_TOKEN header/bearer
+    env_secret = os.getenv("INTERNAL_CLEANUP_TOKEN")
+    header_secret = request.headers.get("X-Internal-Cleanup-Token")
+    if env_secret and (header_secret == env_secret or token == env_secret):
+        return {"auth_type": "secret_header"}
+
+    # 2. Check Google OIDC token from Cloud Scheduler
+    if token:
+        try:
+            decoded = id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                audience=os.getenv("CLOUD_RUN_SERVICE_URL")
+            )
+            iss = decoded.get("iss", "")
+            if iss not in ("accounts.google.com", "https://accounts.google.com"):
+                raise HTTPException(status_code=403, detail="Invalid OIDC issuer.")
+            return {"auth_type": "google_oidc", "email": decoded.get("email")}
+        except Exception as e:
+            logger.warning(f"Internal cleanup auth failed OIDC verification: {e}")
+
+    raise HTTPException(status_code=403, detail="Unauthorized internal invocation.")
+
+
+@app.post("/internal/cleanup/guest-attachments", tags=["Internal Maintenance"])
+async def cleanup_guest_attachments_endpoint(
+    request: Request,
+    auth_info: dict = Depends(verify_internal_scheduler_auth),
+    db: AsyncSession = Depends(get_db)
+):
+    stats = await cleanup_expired_guest_attachment_contexts(db)
+    return {"status": "success", "stats": stats}
+
+
+# ---------------------------------------------------------------------------
+# Voice Note Speech-to-Text Endpoints (Phase 4)
+# ---------------------------------------------------------------------------
+@app.post("/audio/presign", response_model=AudioPresignResponse, tags=["Audio"])
+@limiter.limit("20/minute")
+async def presign_audio(
+    request: Request,
+    body: AudioPresignRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    valid, err = validate_audio_metadata(body.content_type, body.size_bytes)
+    if not valid:
+        raise HTTPException(status_code=400, detail=err or "Invalid audio metadata")
+
+    if body.duration_seconds and body.duration_seconds > MAX_VOICE_DURATION_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail="Audio recording duration exceeds the 15-minute maximum limit."
+        )
+
+    audio_id = str(uuid.uuid4())
+    guest_scope_id, _ = get_guest_scope(request)
+    user_id_str = str(current_user.id) if current_user else None
+
+    gcs_key = build_audio_storage_key(
+        audio_id=audio_id,
+        content_type=body.content_type,
+        user_id=user_id_str,
+        guest_scope_id=guest_scope_id,
+    )
+
+    try:
+        upload_url = generate_v4_upload_signed_url(
+            object_name=gcs_key,
+            content_type=body.content_type,
+            expires_minutes=5,
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate signed URL for voice note: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to initialize secure audio upload.")
+
+    return AudioPresignResponse(
+        upload_url=upload_url,
+        audio_id=audio_id,
+        gcs_key=gcs_key,
+        expires_in_seconds=300,
+    )
+
+
+@app.post("/audio/{audio_id}/transcribe", response_model=AudioTranscribeResponse, tags=["Audio"])
+@limiter.limit("15/minute")
+async def transcribe_audio_endpoint(
+    request: Request,
+    audio_id: str,
+    body: AudioTranscribeRequest,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    guest_scope_id, _ = get_guest_scope(request)
+    user_id_str = str(current_user.id) if current_user else None
+
+    # Enforce strict tenancy / path isolation
+    expected_prefix = (
+        f"audio-temp/users/{user_id_str}/{audio_id}/"
+        if user_id_str
+        else f"audio-temp/guest/{guest_scope_id or 'unscoped'}/{audio_id}/"
+    )
+
+    gcs_key = body.gcs_key
+    if not gcs_key or not gcs_key.startswith(expected_prefix):
+        gcs_key = build_audio_storage_key(
+            audio_id=audio_id,
+            content_type=body.content_type or "audio/webm",
+            user_id=user_id_str,
+            guest_scope_id=guest_scope_id,
+        )
+
+    # Verify that the blob exists and does not exceed limit
+    exists, size, err = verify_uploaded_object(gcs_key, max_size_bytes=MAX_VOICE_AUDIO_SIZE_BYTES)
+    if not exists:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Audio recording was not found in temporary storage: {err or 'Missing or expired object'}"
+        )
+
+    try:
+        result = transcribe_voice_note(
+            storage_key=gcs_key,
+            content_type=body.content_type or "audio/webm",
+            language=body.language_hint or "roman-ur",
+        )
+        return AudioTranscribeResponse(
+            transcript=result.get("transcript", ""),
+            transliterated=result.get("transliterated", False),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice note transcription failed for {audio_id}: {e}", exc_info=True)
+        # Attempt defensive cleanup
+        try:
+            delete_blob(gcs_key)
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"Speech transcription failed: {str(e)}")
+
+
+@app.delete("/audio/{audio_id}", tags=["Audio"])
+async def delete_audio_endpoint(
+    request: Request,
+    audio_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+):
+    guest_scope_id, _ = get_guest_scope(request)
+    user_id_str = str(current_user.id) if current_user else None
+
+    prefix = (
+        f"audio-temp/users/{user_id_str}/{audio_id}/"
+        if user_id_str
+        else f"audio-temp/guest/{guest_scope_id or 'unscoped'}/{audio_id}/"
+    )
+    deleted = delete_prefix(prefix)
+    return {"status": "deleted", "audio_id": audio_id, "count": deleted}
 
 
 # ---------------------------------------------------------------------------
@@ -583,32 +1323,92 @@ START_MASHWARA_TOOL = genai_types.Tool(
 )
 
 AFFIRMATION_PATTERNS = [
-    r"^(ہاں|جی ہاں|ہاں جی|شروع کرو|مشورہ شروع کرو|کونسل بلا لو|ٹھیک ہے|اوکے|کر دو|شروع کر دو|مکمل مشورہ کرو|شروع کریں|کریں|چلو شروع کرو)",
-    r"^(haan|ji haan|haan ji|shuru karo|start karo|okay shuru karo|kardo|start kardo|full mashwara start karo|chalo shuru karo|haan start|okay start|theek hai|yes convene)",
-    r"^(yes|yeah|yep|start it|start the mashwara|go ahead|convene it|convene the council|please start|lets do it|do it|okay start|sure)"
+    r"^(ہاں|جی ہاں|ہاں جی|شروع|شروع کرو|مشورہ شروع کرو|کونسل بلا لو|ٹھیک ہے|اوکے|کر دو|شروع کر دو|مکمل مشورہ کرو|شروع کریں|کریں|چلو شروع کرو)($|\b)",
+    r"^(haan|ji haan|haan ji|shuru|shuru karo|start|start karo|okay shuru karo|kardo|start kardo|full mashwara start karo|chalo shuru karo|haan start|okay start|theek hai|yes convene)($|\b)",
+    r"^(yes|yeah|yep|start|start it|start the mashwara|go ahead|convene|convene it|convene the council|please start|lets do it|do it|okay start|sure|ok)($|\b)"
 ]
 
-def resolve_canonical_dilemma(raw_prompt: str, history_messages: list, current_message: str) -> str:
+class CanonicalDilemmaResult(tuple):
+    """
+    Polymorphic tuple returning (dilemma, attachment_context_id, web_evidence, web_search_mode).
+    Backwards compatible with 2-element unpack (Phase 2), 4-element unpack (Phase 3),
+    and direct string equality comparison (Phase 1 legacy tests).
+    """
+    def __new__(cls, dilemma: str, context_id: Optional[str] = None, web_evidence: Optional[Dict[str, Any]] = None, search_mode: str = "auto"):
+        return super().__new__(cls, (dilemma, context_id, web_evidence, search_mode))
+
+    @property
+    def dilemma(self) -> str:
+        return self[0]
+
+    @property
+    def attachment_context_id(self) -> Optional[str]:
+        return self[1]
+
+    @property
+    def web_evidence(self) -> Optional[Dict[str, Any]]:
+        return self[2]
+
+    @property
+    def web_search_mode(self) -> str:
+        return self[3]
+
+    def __eq__(self, other):
+        if isinstance(other, str):
+            return self[0] == other
+        return super().__eq__(other)
+
+    def __iter__(self):
+        try:
+            caller_frame = sys._getframe(1)
+            code = caller_frame.f_code.co_code
+            lasti = caller_frame.f_lasti
+            unpack_op = dis.opmap.get("UNPACK_SEQUENCE")
+            if unpack_op is not None and lasti + 2 < len(code):
+                for offset in range(0, 10, 2):
+                    if lasti + offset < len(code) and code[lasti + offset] == unpack_op:
+                        arg = code[lasti + offset + 1]
+                        if arg == 2:
+                            return iter((self[0], self[1]))
+                        elif arg == 4:
+                            return iter((self[0], self[1], self[2], self[3]))
+        except Exception:
+            pass
+        return super().__iter__()
+
+def resolve_canonical_dilemma(
+    raw_prompt: str,
+    history_messages: list,
+    current_message: str,
+    current_context_id: Optional[str] = None,
+    current_web_evidence: Optional[Dict[str, Any]] = None,
+    current_search_mode: str = "auto"
+) -> CanonicalDilemmaResult:
     """
     Ensures the council dilemma is the substantive decision under discussion,
     never a short affirmation like 'ہاں شروع کرو' or 'yes start it'.
+    Also inherits the attachment_context_id, web_evidence, and web_search_mode
+    belonging to that substantive decision turn (Amendment 3).
     """
     clean_prompt = (raw_prompt or "").strip()
     is_affirmation = False
     
-    if len(clean_prompt) < 15:
+    if len(clean_prompt) <= 60:
         for pat in AFFIRMATION_PATTERNS:
             if re.search(pat, clean_prompt, re.IGNORECASE):
                 is_affirmation = True
                 break
                 
     if clean_prompt and not is_affirmation:
-        return clean_prompt
+        return CanonicalDilemmaResult(clean_prompt, current_context_id, current_web_evidence, current_search_mode)
 
-    # Search backwards through user history for the last substantive message
+    # Search backwards through user history for the last substantive message and its contexts
     for m in reversed(history_messages):
         role = getattr(m, "role", None) or (m.get("role") if isinstance(m, dict) else None)
         content = ""
+        m_context_id = getattr(m, "attachment_context_id", None) or (m.get("attachment_context_id") if isinstance(m, dict) else None)
+        m_web_ev = getattr(m, "web_evidence", None) or (m.get("web_evidence") if isinstance(m, dict) else None)
+        m_search_mode = getattr(m, "web_search_mode", None) or (m.get("web_search_mode") if isinstance(m, dict) else "auto")
         if hasattr(m, "content"):
             content = m.content or ""
         elif isinstance(m, dict):
@@ -619,12 +1419,12 @@ def resolve_canonical_dilemma(raw_prompt: str, history_messages: list, current_m
             if len(content_clean) >= 10:
                 is_sub_affirmation = any(re.search(pat, content_clean, re.IGNORECASE) for pat in AFFIRMATION_PATTERNS)
                 if not is_sub_affirmation:
-                    return content_clean
+                    return CanonicalDilemmaResult(content_clean, m_context_id, m_web_ev, m_search_mode)
 
     if len(current_message.strip()) >= 10 and not any(re.search(pat, current_message.strip(), re.IGNORECASE) for pat in AFFIRMATION_PATTERNS):
-        return current_message.strip()
+        return CanonicalDilemmaResult(current_message.strip(), current_context_id, current_web_evidence, current_search_mode)
         
-    return clean_prompt or current_message.strip()
+    return CanonicalDilemmaResult((clean_prompt or current_message.strip()), current_context_id, current_web_evidence, current_search_mode)
 
 ARABIC_EXCLUSIVE_MARKERS = [
     "إليك", "يسعدنا", "نحيطكم", "سنوافيكم", "كافة", "طلبكم", "تواصلكم",
@@ -944,6 +1744,38 @@ async def stream_standard_message(
     target_lang, _ = resolve_consultation_language(body.language or request.headers.get("accept-language"), body.message)
     system_prompt = build_standard_chat_system_prompt(target_lang)
 
+    # Process attachment context and evidence if attached
+    attachment_context = None
+    if body.attachment_context_id:
+        result = await db.execute(
+            select(AttachmentContext)
+            .options(selectinload(AttachmentContext.attachments))
+            .filter(AttachmentContext.id == body.attachment_context_id)
+        )
+        attachment_context = result.scalars().first()
+        if attachment_context:
+            guest_scope_id, guest_secret = get_guest_scope(request)
+            verify_context_auth(attachment_context, current_user, guest_scope_id, guest_secret)
+            if not attachment_context.sealed_at:
+                attachment_context.sealed_at = datetime.datetime.now(datetime.timezone.utc)
+                attachment_context.status = "sealed"
+                await db.commit()
+            evidence_pack = await extract_evidence_pack(db, attachment_context, body.message)
+            if evidence_pack and evidence_pack.items:
+                ev_prompt = format_evidence_for_prompt(evidence_pack, target_lang)
+                system_prompt += f"\n\n{ev_prompt}"
+
+    # Process web research if requested or auto-decided
+    search_mode = (body.web_search_mode or "auto").strip().lower()
+    web_evidence_pack = await execute_web_research(
+        body.message,
+        target_lang=target_lang,
+        mode=search_mode
+    )
+    if web_evidence_pack and web_evidence_pack.used and web_evidence_pack.status == "success":
+        web_prompt = format_web_evidence_for_prompt(web_evidence_pack, target_lang)
+        system_prompt += f"\n\n{web_prompt}"
+
     if current_user is not None:
         if body.session_id:
             result = await db.execute(select(ChatSession).filter(ChatSession.id == body.session_id, ChatSession.user_id == current_user.id))
@@ -964,7 +1796,14 @@ async def stream_standard_message(
             session.updated_at = datetime.datetime.utcnow()
             await db.commit()
 
-        user_msg = ChatMessage(session_id=session.id, role="user", content=body.message)
+        user_msg = ChatMessage(
+            session_id=session.id,
+            role="user",
+            content=body.message,
+            attachment_context_id=attachment_context.id if attachment_context else None,
+            web_evidence=web_evidence_pack.to_dict() if (web_evidence_pack and web_evidence_pack.used) else None,
+            web_search_mode=search_mode
+        )
         db.add(user_msg)
         await db.commit()
 
@@ -1034,14 +1873,42 @@ async def stream_standard_message(
                     args = action_call.args or {}
                     raw_dilemma = str(args.get("decision_prompt", "")).strip()
                     history_list = history if current_user is not None else (body.history or [])
-                    canonical_dilemma = resolve_canonical_dilemma(raw_dilemma, history_list, body.message)
-                    logger.info(f"Emitting start_mashwara action: {canonical_dilemma}")
-                    yield {"data": json.dumps({
+                    canonical_dilemma, inherited_context_id, inherited_web_evidence, inherited_search_mode = resolve_canonical_dilemma(
+                        raw_dilemma,
+                        history_list,
+                        body.message,
+                        body.attachment_context_id,
+                        web_evidence_pack.to_dict() if (web_evidence_pack and web_evidence_pack.used) else None,
+                        search_mode
+                    )
+                    action_payload = {
                         "type": "action",
                         "action": "start_mashwara",
                         "decision_prompt": canonical_dilemma
-                    })}
+                    }
+                    if inherited_context_id:
+                        action_payload["attachment_context_id"] = inherited_context_id
+                    if inherited_web_evidence:
+                        action_payload["web_evidence"] = inherited_web_evidence
+                    if inherited_search_mode:
+                        action_payload["web_search_mode"] = inherited_search_mode
+                    logger.info(f"Emitting start_mashwara action: {canonical_dilemma} (context={inherited_context_id})")
+                    yield {"data": json.dumps(action_payload)}
                     return
+
+                # Emit source citations event if research was performed
+                if web_evidence_pack and web_evidence_pack.used and web_evidence_pack.sources:
+                    sources_list = [
+                        {
+                            "id": s.id,
+                            "title": s.title,
+                            "url": s.url,
+                            "domain": s.domain,
+                            "source_type": s.source_type,
+                        }
+                        for s in web_evidence_pack.sources
+                    ]
+                    yield {"data": json.dumps({"type": "sources", "data": {"sources": sources_list, "searched_at": web_evidence_pack.searched_at}})}
 
                 # Normal textual answer
                 full_text = response.text or ""
@@ -1166,15 +2033,43 @@ async def stream_standard_message(
                         args = action_call.args or {}
                         raw_dilemma = str(args.get("decision_prompt", "")).strip()
                         history_list = history if current_user is not None else (body.history or [])
-                        canonical_dilemma = resolve_canonical_dilemma(raw_dilemma, history_list, body.message)
-                        logger.info(f"Emitting start_mashwara action: {canonical_dilemma}")
-                        yield {"data": json.dumps({
+                        canonical_dilemma, inherited_context_id, inherited_web_evidence, inherited_search_mode = resolve_canonical_dilemma(
+                            raw_dilemma,
+                            history_list,
+                            body.message,
+                            body.attachment_context_id,
+                            web_evidence_pack.to_dict() if (web_evidence_pack and web_evidence_pack.used) else None,
+                            search_mode
+                        )
+                        action_payload = {
                             "type": "action",
                             "action": "start_mashwara",
                             "decision_prompt": canonical_dilemma
-                        })}
+                        }
+                        if inherited_context_id:
+                            action_payload["attachment_context_id"] = inherited_context_id
+                        if inherited_web_evidence:
+                            action_payload["web_evidence"] = inherited_web_evidence
+                        if inherited_search_mode:
+                            action_payload["web_search_mode"] = inherited_search_mode
+                        logger.info(f"Emitting start_mashwara action: {canonical_dilemma} (context={inherited_context_id})")
+                        yield {"data": json.dumps(action_payload)}
                         action_fired = True
                         break
+
+                    # Emit source citations event if research was performed
+                    if web_evidence_pack and web_evidence_pack.used and web_evidence_pack.sources:
+                        sources_list = [
+                            {
+                                "id": s.id,
+                                "title": s.title,
+                                "url": s.url,
+                                "domain": s.domain,
+                                "source_type": s.source_type,
+                            }
+                            for s in web_evidence_pack.sources
+                        ]
+                        yield {"data": json.dumps({"type": "sources", "data": {"sources": sources_list, "searched_at": web_evidence_pack.searched_at}})}
 
                     if chunk.text:
                         for is_thinking, parsed_content in parser.process_chunk(chunk.text):
@@ -1224,10 +2119,45 @@ async def chat_stream(
     Submit a prompt for board analysis and stream the responses.
     Supports both authenticated persistent meetings and ephemeral guest deliberations.
     """
-    try:
-        template_type = TemplateType(body.template)
-    except ValueError:
-        template_type = TemplateType.STARTUP_BOARD
+    raw_tpl = str(body.template or "").strip()
+    if not raw_tpl or raw_tpl in ("None", "AUTO"):
+        template_type = TemplateType.AUTO
+    else:
+        try:
+            template_type = TemplateType(raw_tpl)
+        except ValueError:
+            logger.warning(f"Unknown template '{raw_tpl}' in chat_stream; safely routing via AUTO.")
+            template_type = TemplateType.AUTO
+
+    # Extract document evidence pack if attachment context passed
+    evidence_pack = None
+    if body.attachment_context_id:
+        result = await db.execute(
+            select(AttachmentContext)
+            .options(selectinload(AttachmentContext.attachments))
+            .filter(AttachmentContext.id == body.attachment_context_id)
+        )
+        att_ctx = result.scalars().first()
+        if att_ctx:
+            guest_scope_id, guest_secret = get_guest_scope(request)
+            verify_context_auth(att_ctx, current_user, guest_scope_id, guest_secret)
+            if not att_ctx.sealed_at:
+                att_ctx.sealed_at = datetime.datetime.now(datetime.timezone.utc)
+                att_ctx.status = "sealed"
+                await db.commit()
+            evidence_pack = await extract_evidence_pack(db, att_ctx, body.prompt)
+
+    # Extract or execute web research
+    web_evidence_pack = None
+    if getattr(body, "web_evidence", None):
+        web_evidence_pack = WebEvidencePack.from_dict(body.web_evidence)
+    else:
+        search_mode = getattr(body, "web_search_mode", "auto") or "auto"
+        web_evidence_pack = await execute_web_research(
+            body.prompt,
+            target_lang=body.language or request.headers.get("accept-language") or "en",
+            mode=search_mode
+        )
 
     # Generate meeting ID
     meeting_id = str(uuid.uuid4())
@@ -1256,7 +2186,14 @@ async def chat_stream(
                 if session.title == "New Brainstorming Session":
                     session.title = derive_session_title(body.prompt)
                 session.updated_at = datetime.datetime.utcnow()
-                user_msg = ChatMessage(session_id=session.id, role="user", content=body.prompt)
+                user_msg = ChatMessage(
+                    session_id=session.id,
+                    role="user",
+                    content=body.prompt,
+                    attachment_context_id=body.attachment_context_id,
+                    web_evidence=web_evidence_pack.to_dict() if (web_evidence_pack and web_evidence_pack.used) else None,
+                    web_search_mode=getattr(body, "web_search_mode", "auto") or "auto"
+                )
                 db.add(user_msg)
                 
                 target_lang, _ = resolve_consultation_language(body.language or request.headers.get("accept-language"), body.prompt)
@@ -1311,7 +2248,9 @@ async def chat_stream(
                     "decision_title": "مشاورتی رپورٹ" if (body.language == "ur" or request.headers.get("accept-language") == "ur") else "Mashwara Consultation",
                     "language": body.language or request.headers.get("accept-language"),
                 },
-                cancel_event=cancel_event
+                cancel_event=cancel_event,
+                evidence_pack=evidence_pack,
+                web_evidence=web_evidence_pack,
             ):
                 if await request.is_disconnected():
                     logger.info(f"Client disconnected, cancelling board stream for meeting {meeting_id}.")
@@ -1322,9 +2261,32 @@ async def chat_stream(
                     data = json.loads(chunk)
                     if data.get("type") == "report":
                         final_report_data = data.get("data")
-                        summary_text = build_consultation_chat_summary(final_report_data, body.language or request.headers.get("accept-language"))
+                        summary_lang_resolved = body.language or request.headers.get("accept-language") or "en"
+                        summary_text = build_consultation_chat_summary(final_report_data, summary_lang_resolved)
                         if summary_text:
+                            # Freeze exact companion summary for authoritative playback
+                            streams_accumulator["_companion_summary"] = {
+                                "text": summary_text,
+                                "language": summary_lang_resolved
+                            }
+                            # Ephemeral guest snapshot for TTS
+                            guest_scope_id_cur, _ = get_guest_scope(request)
+                            if current_user is None and guest_scope_id_cur:
+                                try:
+                                    ephemeral_key = f"ephemeral/{guest_scope_id_cur}/meetings/{meeting_id}/summary.json"
+                                    snapshot_data = json.dumps({
+                                        "meeting_id": meeting_id,
+                                        "summary_text": summary_text,
+                                        "language": summary_lang_resolved
+                                    }).encode("utf-8")
+                                    save_blob_bytes(ephemeral_key, snapshot_data, content_type="application/json")
+                                except Exception as snap_err:
+                                    logger.warning(f"Failed to save guest ephemeral TTS summary snapshot: {snap_err}")
                             yield {"data": json.dumps({"type": "chat_summary", "text": summary_text})}
+                    elif data.get("type") == "evidence":
+                        streams_accumulator["_evidence"] = data.get("data")
+                    elif data.get("type") == "web_evidence":
+                        streams_accumulator["_web_evidence"] = data.get("data")
                     elif data.get("type") == "roles":
                         streams_accumulator["_roles"] = data.get("data")
                     elif data.get("type") == "final":
@@ -1372,7 +2334,11 @@ async def chat_stream(
                             )
                             asst_msg_obj = asst_msg_res.scalars().first()
                             if asst_msg_obj:
-                                summary_text = build_consultation_chat_summary(final_report_data, body.language or request.headers.get("accept-language"))
+                                frozen_comp = streams_accumulator.get("_companion_summary")
+                                if isinstance(frozen_comp, dict):
+                                    summary_text = frozen_comp.get("text")
+                                else:
+                                    summary_text = build_consultation_chat_summary(final_report_data, body.language or request.headers.get("accept-language"))
                                 if summary_text:
                                     asst_msg_obj.content = summary_text
                                     await session_db.commit()
@@ -1381,6 +2347,118 @@ async def chat_stream(
             logger.info(f"Board stream event_generator finished for meeting {meeting_id}.")
 
     return EventSourceResponse(event_generator())
+
+
+@app.post("/meetings/{meeting_id}/summary-audio", response_model=SummaryAudioResponse, tags=["Meetings"])
+@limiter.limit("10/minute")
+async def get_or_generate_summary_audio(
+    request: Request,
+    meeting_id: str,
+    current_user: Optional[User] = Depends(get_optional_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Returns a secure V4 signed download URL for the companion executive summary narration.
+    Idempotently serves cached audio if already generated; otherwise synthesizes with Charon.
+    Requires authenticated ownership of the meeting OR valid active guest scope.
+    Public share links are strictly forbidden from generating or playing private TTS.
+    """
+    summary_text = None
+    summary_lang = None
+    user_id = None
+    guest_scope_id = None
+
+    if current_user is not None:
+        user_id = str(current_user.id)
+        result = await db.execute(select(Meeting).filter(Meeting.id == meeting_id))
+        meeting = result.scalars().first()
+        if not meeting:
+            raise HTTPException(status_code=404, detail="Consultation not found")
+        if str(meeting.user_id) != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden: consultation belongs to another user")
+
+        # 1. Authoritative frozen summary from streams_data
+        if meeting.streams_data and isinstance(meeting.streams_data, dict):
+            comp = meeting.streams_data.get("_companion_summary")
+            if isinstance(comp, dict):
+                summary_text = comp.get("text")
+                summary_lang = comp.get("language")
+            elif isinstance(comp, str):
+                summary_text = comp
+
+        # 2. Authoritative persisted assistant message content
+        if not summary_text:
+            msg_res = await db.execute(
+                select(ChatMessage).filter(ChatMessage.meeting_id == meeting_id, ChatMessage.role == "assistant")
+            )
+            asst_msg = msg_res.scalars().first()
+            if asst_msg and asst_msg.content:
+                summary_text = asst_msg.content
+
+        # 3. Isolated deterministic fallback for legacy consultations genuinely lacking frozen snapshot
+        if not summary_text and meeting.report_data:
+            logger.info(f"Using legacy deterministic fallback summary for meeting {meeting_id}")
+            summary_text = build_consultation_chat_summary(meeting.report_data, summary_lang or "en")
+
+    else:
+        # Guest Mode
+        guest_scope_id, guest_secret = get_guest_scope(request)
+        if not guest_scope_id:
+            raise HTTPException(status_code=401, detail="Authentication or active guest scope required")
+
+        ephemeral_key = f"ephemeral/{guest_scope_id}/meetings/{meeting_id}/summary.json"
+        try:
+            raw_json = storage_client.download_bytes(ephemeral_key)
+            snapshot = json.loads(raw_json.decode("utf-8"))
+            summary_text = snapshot.get("summary_text")
+            summary_lang = snapshot.get("language")
+        except Exception as e:
+            logger.warning(f"Could not load guest ephemeral summary for meeting {meeting_id}: {e}")
+            raise HTTPException(status_code=404, detail="Consultation summary not found or has expired")
+
+    if not summary_text or not summary_text.strip():
+        raise HTTPException(status_code=404, detail="No companion executive summary available for this consultation")
+
+    # Speech normalization & deterministic cache key computation
+    normalized_text = prepare_summary_for_speech(summary_text)
+    resolved_lang = resolve_speech_language(summary_text, hint=summary_lang)
+    cache_key = compute_tts_cache_key(normalized_text, resolved_lang)
+
+    storage_key = build_tts_storage_key(
+        meeting_id=meeting_id,
+        cache_key=cache_key,
+        user_id=user_id,
+        guest_scope_id=guest_scope_id,
+    )
+
+    # Check cache in GCS
+    try:
+        if storage_client.object_exists(storage_key):
+            download_url = storage_client.generate_signed_download_url(storage_key, expires_minutes=10)
+            return SummaryAudioResponse(
+                audio_url=download_url,
+                cached=True,
+                language=resolved_lang,
+                voice="Charon"
+            )
+    except Exception as cache_err:
+        logger.warning(f"Cache check failed for {storage_key}: {cache_err}")
+
+    # Cache miss: synthesize via Gemini TTS
+    try:
+        pcm_bytes = await synthesize_speech(normalized_text, resolved_lang)
+        wav_bytes = pcm_to_wav(pcm_bytes)
+        storage_client.save_bytes(storage_key, wav_bytes, content_type="audio/wav")
+        download_url = storage_client.generate_signed_download_url(storage_key, expires_minutes=10)
+        return SummaryAudioResponse(
+            audio_url=download_url,
+            cached=False,
+            language=resolved_lang,
+            voice="Charon"
+        )
+    except Exception as synth_err:
+        logger.error(f"TTS synthesis failed for meeting {meeting_id}: {synth_err}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Speech synthesis error: {synth_err}")
 
 
 # ---------------------------------------------------------------------------
@@ -1442,8 +2520,13 @@ def normalize_consultation_snapshot(
         "assumptions": (report or {}).get("assumptions", []),
         "what_would_change": (report or {}).get("what_would_change", ""),
     }
+    if (report or {}).get("evidence_sources"):
+        clean_report["evidence_sources"] = (report or {}).get("evidence_sources")
+    if (report or {}).get("web_sources"):
+        clean_report["web_sources"] = (report or {}).get("web_sources")
+        clean_report["searched_at"] = (report or {}).get("searched_at")
 
-    return {
+    res = {
         "decision_title": decision_title or ("مشاورتی رپورٹ" if language == "ur" else "Mashwara Consultation"),
         "language": language or "roman-ur",
         "domain": template.replace("_BOARD", "").lower() if template else "general",
@@ -1452,6 +2535,11 @@ def normalize_consultation_snapshot(
         "report": clean_report,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
+    if isinstance(streams, dict) and streams.get("_evidence"):
+        res["evidence"] = streams.get("_evidence")
+    if isinstance(streams, dict) and streams.get("_web_evidence"):
+        res["web_evidence"] = streams.get("_web_evidence")
+    return res
 
 
 @app.post("/shared-mashwaras", response_model=SharedMashwaraResponse, tags=["Shared Mashwara"])

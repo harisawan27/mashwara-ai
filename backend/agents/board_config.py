@@ -16,7 +16,12 @@ DELIBERATION_MODEL = "gemini-3.5-flash-lite"
 LEAD_ADVISOR_MODEL = "gemini-3.5-flash-lite"
 
 CHAT_MODEL = "gemini-3.1-flash-lite"
-SEARCH_MODEL = "gemini-3.1-flash-lite"
+SEARCH_MODEL = "gemini-3.5-flash-lite"
+ROUTER_MODEL = "gemini-3.1-flash-lite"
+TRANSCRIBE_MODEL = "gemini-3.5-transcribe"
+TRANSLITERATION_MODEL = "gemini-3.5-flash-lite"
+TTS_MODEL = "gemini-3.1-flash-tts-preview"
+TTS_VOICE = "Charon"
 
 # Backward compatibility aliases
 FAST_SPECIALIST_MODEL = SPECIALIST_MODEL
@@ -547,35 +552,43 @@ Respond in clear, professional English while demonstrating full fluency with Pak
 """
 
 
-def get_specialist_prompt(role_key: str, lang: str) -> str:
+def get_specialist_prompt(role_key: str, lang: str, dynamic_role_def: Optional[Dict[str, Any]] = None) -> str:
     """Generates the concise, lens-specific system prompt for a specialist in Round 1."""
-    role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
-    role_name = role_meta.get(lang, role_meta["en"])["name"]
-    role_desc = role_meta.get(lang, role_meta["en"])["description"]
+    if dynamic_role_def:
+        name_dict = dynamic_role_def.get("name", {})
+        desc_dict = dynamic_role_def.get("description", {})
+        role_name = name_dict.get(lang, name_dict.get("en", role_key))
+        role_desc = desc_dict.get(lang, desc_dict.get("en", ""))
+        specific_lens = dynamic_role_def.get("expertise_instruction", "Provide objective specialist counsel.")
+    else:
+        role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
+        role_name = role_meta.get(lang, role_meta["en"])["name"]
+        role_desc = role_meta.get(lang, role_meta["en"])["description"]
+
+        lens_instructions = {
+            "career_advisor": "Focus strictly on long-term trajectory, skills development, employability, and growth optionality.",
+            "financial_advisor": "Focus strictly on cash flow, income stability, downside affordability, savings buffer, and opportunity cost.",
+            "market_advisor": "Focus strictly on market demand, competitive dynamics, industry hiring trends, and realistic earning ceiling.",
+            "practical_advisor": "Focus strictly on daily reality, workload feasibility, execution friction, and logistics.",
+            "family_constraint_advisor": "Focus strictly on household obligations, dependents' support, and practical family constraints supplied by the user.",
+            "risk_analyst": "Focus strictly on failure modes, downside severity, uncertainty, and reversibility of the decision.",
+            "critical_challenger": "Your role is to test emerging consensus. Challenge hidden assumptions, expose overconfidence, and present the strongest reasonable opposing case.",
+            "academic_advisor": "Focus strictly on academic prerequisites, educational quality, learning outcomes, and degree marketability.",
+            "opportunity_advisor": "Focus strictly on alternative pathways, scholarships, hidden upsides, and unconventional options.",
+            "freelance_advisor": "Focus strictly on rate negotiation, client diversification, contract scope, and freelance career sustainability.",
+            "workload_advisor": "Focus strictly on personal capacity, burnout risk, mental wellbeing, and sustainable workload pace.",
+            "business_strategist": "Focus strictly on unit economics, business model viability, positioning, and scalable revenue.",
+            "operations_advisor": "Focus strictly on execution capacity, logistics, supply bottlenecks, and operational realistic load.",
+            "product_advisor": "Focus strictly on product-market fit, user problem validation, and roadmap prioritization.",
+            "technology_advisor": "Focus strictly on engineering complexity, technical feasibility, architecture choices, and tech debt.",
+            "user_experience_advisor": "Focus strictly on usability, user journeys, customer satisfaction, and adoption friction.",
+            "budget_advisor": "Focus strictly on monthly cash allocation, expenditure discipline, and buffer preservation.",
+            "future_planning_advisor": "Focus strictly on 3-5 year life milestones, compounding advantages, and future security.",
+        }
+
+        specific_lens = lens_instructions.get(role_key, "Provide objective specialist counsel.")
+
     lang_inst = get_language_prompt_instruction(lang)
-
-    lens_instructions = {
-        "career_advisor": "Focus strictly on long-term trajectory, skills development, employability, and growth optionality.",
-        "financial_advisor": "Focus strictly on cash flow, income stability, downside affordability, savings buffer, and opportunity cost.",
-        "market_advisor": "Focus strictly on market demand, competitive dynamics, industry hiring trends, and realistic earning ceiling.",
-        "practical_advisor": "Focus strictly on daily reality, workload feasibility, execution friction, and logistics.",
-        "family_constraint_advisor": "Focus strictly on household obligations, dependents' support, and practical family constraints supplied by the user.",
-        "risk_analyst": "Focus strictly on failure modes, downside severity, uncertainty, and reversibility of the decision.",
-        "critical_challenger": "Your role is to test emerging consensus. Challenge hidden assumptions, expose overconfidence, and present the strongest reasonable opposing case.",
-        "academic_advisor": "Focus strictly on academic prerequisites, educational quality, learning outcomes, and degree marketability.",
-        "opportunity_advisor": "Focus strictly on alternative pathways, scholarships, hidden upsides, and unconventional options.",
-        "freelance_advisor": "Focus strictly on rate negotiation, client diversification, contract scope, and freelance career sustainability.",
-        "workload_advisor": "Focus strictly on personal capacity, burnout risk, mental wellbeing, and sustainable workload pace.",
-        "business_strategist": "Focus strictly on unit economics, business model viability, positioning, and scalable revenue.",
-        "operations_advisor": "Focus strictly on execution capacity, logistics, supply bottlenecks, and operational realistic load.",
-        "product_advisor": "Focus strictly on product-market fit, user problem validation, and roadmap prioritization.",
-        "technology_advisor": "Focus strictly on engineering complexity, technical feasibility, architecture choices, and tech debt.",
-        "user_experience_advisor": "Focus strictly on usability, user journeys, customer satisfaction, and adoption friction.",
-        "budget_advisor": "Focus strictly on monthly cash allocation, expenditure discipline, and buffer preservation.",
-        "future_planning_advisor": "Focus strictly on 3-5 year life milestones, compounding advantages, and future security.",
-    }
-
-    specific_lens = lens_instructions.get(role_key, "Provide objective specialist counsel.")
 
     return f"""You are {role_name} on Mashwara AI.
 {role_desc}
@@ -613,10 +626,14 @@ RULES:
 """
 
 
-def get_rebuttal_prompt(role_key: str, lang: str, peer_summary: str) -> str:
+def get_rebuttal_prompt(role_key: str, lang: str, peer_summary: str, dynamic_role_def: Optional[Dict[str, Any]] = None) -> str:
     """Generates the prompt for a specialist participating in Round 2 rebuttal."""
-    role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
-    role_name = role_meta.get(lang, role_meta["en"])["name"]
+    if dynamic_role_def:
+        name_dict = dynamic_role_def.get("name", {})
+        role_name = name_dict.get(lang, name_dict.get("en", role_key))
+    else:
+        role_meta = ROLE_METADATA.get(role_key, ROLE_METADATA["career_advisor"])
+        role_name = role_meta.get(lang, role_meta["en"])["name"]
     lang_inst = get_language_prompt_instruction(lang)
 
     return f"""You are {role_name} participating in Round 2 Deliberation on Mashwara AI.
