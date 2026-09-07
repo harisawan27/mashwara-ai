@@ -1856,7 +1856,7 @@ async def stream_standard_message(
             guest_scope_id, guest_secret = get_guest_scope(request)
             verify_context_auth(attachment_context, current_user, guest_scope_id, guest_secret)
             if not attachment_context.sealed_at:
-                attachment_context.sealed_at = datetime.datetime.now(datetime.timezone.utc)
+                attachment_context.sealed_at = utc_now_naive()
                 attachment_context.status = "sealed"
                 await db.commit()
             evidence_pack = await extract_evidence_pack(db, attachment_context, body.message)
@@ -2241,7 +2241,7 @@ async def chat_stream(
             guest_scope_id, guest_secret = get_guest_scope(request)
             verify_context_auth(att_ctx, current_user, guest_scope_id, guest_secret)
             if not att_ctx.sealed_at:
-                att_ctx.sealed_at = datetime.datetime.now(datetime.timezone.utc)
+                att_ctx.sealed_at = utc_now_naive()
                 att_ctx.status = "sealed"
                 await db.commit()
             evidence_pack = await extract_evidence_pack(db, att_ctx, body.prompt)
