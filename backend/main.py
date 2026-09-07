@@ -92,10 +92,11 @@ from agents.transcription import (
 )
 from agents.evidence_extractor import (
     ingest_attachment_to_store,
-    extract_evidence_pack,
+    extract_file_evidence_pack,
     format_evidence_for_prompt,
     delete_gemini_store,
     FileEvidencePack,
+    FileEvidenceSource,
 )
 from agents.web_research import (
     execute_web_research,
@@ -1859,8 +1860,28 @@ async def stream_standard_message(
                 attachment_context.sealed_at = utc_now_naive()
                 attachment_context.status = "sealed"
                 await db.commit()
-            evidence_pack = await extract_evidence_pack(db, attachment_context, body.message)
-            if evidence_pack and evidence_pack.items:
+            ep_dict = await extract_file_evidence_pack(attachment_context.id, body.message, db)
+            evidence_pack = FileEvidencePack(
+                context_id=attachment_context.id,
+                sources=[
+                    FileEvidenceSource(
+                        filename=a.get("filename", "document"),
+                        mime_type=a.get("mime_type", "application/octet-stream"),
+                        attachment_id=a.get("attachment_id"),
+                    )
+                    for a in ep_dict.get("attachments", [])
+                ],
+                facts=ep_dict.get("facts", []),
+                strengths=ep_dict.get("strengths", []),
+                gaps=ep_dict.get("gaps", []),
+                constraints=ep_dict.get("constraints", []),
+                numbers=ep_dict.get("numbers", []),
+                contradictions=ep_dict.get("contradictions", []),
+                unknowns=ep_dict.get("unknowns", []),
+                attachments=ep_dict.get("attachments", []),
+                extraction_error=ep_dict.get("extraction_error"),
+            ) if ep_dict else None
+            if evidence_pack and evidence_pack.sources:
                 ev_prompt = format_evidence_for_prompt(evidence_pack, target_lang)
                 system_prompt += f"\n\n{ev_prompt}"
 
@@ -2244,7 +2265,27 @@ async def chat_stream(
                 att_ctx.sealed_at = utc_now_naive()
                 att_ctx.status = "sealed"
                 await db.commit()
-            evidence_pack = await extract_evidence_pack(db, att_ctx, body.prompt)
+            ep_dict = await extract_file_evidence_pack(att_ctx.id, body.prompt, db)
+            evidence_pack = FileEvidencePack(
+                context_id=att_ctx.id,
+                sources=[
+                    FileEvidenceSource(
+                        filename=a.get("filename", "document"),
+                        mime_type=a.get("mime_type", "application/octet-stream"),
+                        attachment_id=a.get("attachment_id"),
+                    )
+                    for a in ep_dict.get("attachments", [])
+                ],
+                facts=ep_dict.get("facts", []),
+                strengths=ep_dict.get("strengths", []),
+                gaps=ep_dict.get("gaps", []),
+                constraints=ep_dict.get("constraints", []),
+                numbers=ep_dict.get("numbers", []),
+                contradictions=ep_dict.get("contradictions", []),
+                unknowns=ep_dict.get("unknowns", []),
+                attachments=ep_dict.get("attachments", []),
+                extraction_error=ep_dict.get("extraction_error"),
+            ) if ep_dict else None
 
     # Extract or execute web research
     web_evidence_pack = None
