@@ -257,6 +257,66 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 400)
         self.assertIn("15-minute", ctx.exception.detail)
 
+    def test_presign_audio_endpoint_rejects_unsupported_mime(self):
+        req = self.make_mock_request()
+        body = AudioPresignRequest(
+            content_type="audio/flac",
+            size_bytes=1024 * 100,
+            duration_seconds=30.0
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(presign_audio(request=req, body=body, current_user=None))
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertIn("unsupported audio format", ctx.exception.detail.lower())
+
+    @patch("tools.storage.storage_client.generate_signed_upload_url")
+    def test_generate_v4_upload_signed_url_signature_and_kwargs(self, mock_client_signed_url):
+        from tools.storage import generate_v4_upload_signed_url, generate_signed_upload_url
+        mock_client_signed_url.return_value = "https://storage.googleapis.com/v4-signed-test"
+
+        # Explicit kwargs as called by main.py
+        url = generate_v4_upload_signed_url(
+            object_name="audio-temp/test/recording.webm",
+            content_type="audio/webm",
+            expires_minutes=5,
+        )
+        self.assertEqual(url, "https://storage.googleapis.com/v4-signed-test")
+        mock_client_signed_url.assert_called_with(
+            storage_key="audio-temp/test/recording.webm",
+            content_type="audio/webm",
+            expires_minutes=5,
+        )
+
+        # Module-level generate_signed_upload_url also accepts expires_minutes
+        url2 = generate_signed_upload_url(
+            storage_key="users/123/file.pdf",
+            content_type="application/pdf",
+            expires_minutes=10,
+        )
+        self.assertEqual(url2, "https://storage.googleapis.com/v4-signed-test")
+        mock_client_signed_url.assert_called_with(
+            storage_key="users/123/file.pdf",
+            content_type="application/pdf",
+            expires_minutes=10,
+        )
+
+    @patch("main.generate_v4_upload_signed_url")
+    def test_presign_audio_endpoint_storage_error_sanitized(self, mock_generate_url):
+        mock_generate_url.side_effect = RuntimeError("GCS credentials signing failed: internal socket error")
+
+        req = self.make_mock_request({"x-guest-scope-id": "guest_err_test"})
+        body = AudioPresignRequest(
+            content_type="audio/webm",
+            size_bytes=1024 * 100,
+            duration_seconds=10.0
+        )
+        with self.assertRaises(HTTPException) as ctx:
+            asyncio.run(presign_audio(request=req, body=body, current_user=None))
+        self.assertEqual(ctx.exception.status_code, 500)
+        # Verify internal GCS details are not leaked to frontend
+        self.assertEqual(ctx.exception.detail, "Failed to initialize secure audio upload.")
+        self.assertNotIn("credentials", ctx.exception.detail)
+
     @patch("main.verify_uploaded_object")
     @patch("main.transcribe_voice_note")
     def test_transcribe_audio_endpoint_success(self, mock_transcribe, mock_verify):

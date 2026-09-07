@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "../i18n";
-import { SLIDE_VISUALS } from "./tutorial/TutorialVisuals";
+import { SLIDE_VISUALS, SLIDE_VISUALS_BY_ID } from "./tutorial/TutorialVisuals";
 
 interface TutorialModalProps {
   isOpen: boolean;
@@ -58,7 +58,10 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
 
   if (!isOpen || !slide) return null;
 
-  const VisualComponent = SLIDE_VISUALS[currentSlide] || SLIDE_VISUALS[0];
+  const VisualComponent =
+    (slide.id && SLIDE_VISUALS_BY_ID[slide.id]) ||
+    SLIDE_VISUALS[currentSlide] ||
+    SLIDE_VISUALS[0];
   const isLastSlide = currentSlide === totalSlides - 1;
 
   return (
@@ -95,21 +98,28 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
             </div>
           </div>
 
-          {/* Clickable Step Pills */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-1 rounded-full bg-slate-200/50 dark:bg-white/5">
-            {slides.map((_, idx) => (
-              <button
-                key={idx}
-                type="button"
-                onClick={() => setCurrentSlide(idx)}
-                aria-label={`Jump to slide ${idx + 1}`}
-                className={`h-2 rounded-full transition-all duration-300 ${
-                  idx === currentSlide
-                    ? "w-6 bg-blue-600 shadow-xs"
-                    : "w-2 bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-500"
-                }`}
-              />
-            ))}
+          {/* Clickable Step Pills (Compact 13-step track) */}
+          <div className="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-slate-200/50 dark:bg-white/5 max-w-[260px]">
+            {slides.map((s, idx) => {
+              const isActive = idx === currentSlide;
+              const isPassed = idx < currentSlide;
+              return (
+                <button
+                  key={s.id || idx}
+                  type="button"
+                  onClick={() => setCurrentSlide(idx)}
+                  aria-label={`Jump to slide ${idx + 1}: ${s.headline || s.title || ""}`}
+                  title={`${idx + 1}. ${s.headline || s.title || ""}`}
+                  className={`h-1.5 rounded-full transition-all duration-300 cursor-pointer ${
+                    isActive
+                      ? "w-5 bg-blue-600 shadow-xs"
+                      : isPassed
+                      ? "w-1.5 bg-blue-400/60 dark:bg-blue-500/40 hover:w-3 hover:bg-blue-500"
+                      : "w-1.5 bg-slate-300 dark:bg-slate-700 hover:w-3 hover:bg-slate-400 dark:hover:bg-slate-500"
+                  }`}
+                />
+              );
+            })}
           </div>
 
           {/* Actions: Skip / Close */}
@@ -193,13 +203,17 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
             <span>{t.tutorial.back || "Back"}</span>
           </button>
 
-          {/* Mobile Progress Dots */}
-          <div className="flex sm:hidden gap-1.5">
+          {/* Mobile Progress Dots (Compact 13-dot track) */}
+          <div className="flex sm:hidden items-center gap-1 px-1">
             {slides.map((_, i) => (
               <div
                 key={i}
-                className={`h-1.5 rounded-full transition-all duration-300 ${
-                  i === currentSlide ? "w-4 bg-blue-600" : "w-1.5 bg-slate-300 dark:bg-slate-700"
+                className={`h-1 rounded-full transition-all duration-300 ${
+                  i === currentSlide
+                    ? "w-3 bg-blue-600 shadow-xs"
+                    : i < currentSlide
+                    ? "w-1 bg-blue-400/60 dark:bg-blue-500/40"
+                    : "w-1 bg-slate-300 dark:bg-slate-700"
                 }`}
               />
             ))}

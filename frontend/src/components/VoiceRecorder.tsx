@@ -1,12 +1,14 @@
 /**
  * Mashwara AI — Voice Note Recorder Component (Phase 4)
  * =======================================================
- * WhatsApp-familiar interaction model:
- * 1. Primary: Press-and-hold microphone button (unified pointer events)
- * 2. Slide left (physical dx <= -80px) -> Cancel / Discard
- * 3. Slide up (physical dy <= -65px) -> Hands-Free Locked Mode
- * 4. Locked Mode Dock: Delete, Pause/Resume, Finish
- * 5. Transcribed text enters composer textarea — NEVER auto-sends.
+ * WhatsApp-familiar interaction model transformed directly inside composer:
+ * 1. Hold Mic: Composer toolbar row becomes full-width recording surface
+ * 2. Drag Left (physical dx <= -80px): Slide-to-cancel with zero network upload
+ * 3. Drag Up (physical dy <= -65px): Lock hands-free recording
+ * 4. Locked Dock: Delete (destructive), Pause/Resume, Finish (primary) with >= 44x44 targets
+ * 5. Normal Release: Surface transitions to "Uploading securely..." -> "Transcribing your voice..."
+ * 6. Error State: In-composer "⚠️ Voice upload couldn't start [Try again]" preserving draft
+ * 7. Physical LEFT stays left even in Urdu RTL.
  */
 
 import React, { useState, useRef, useEffect } from "react";
@@ -16,11 +18,13 @@ import { useTranslation } from "../i18n";
 interface VoiceRecorderProps {
   onTranscriptReady: (transcript: string, transliterated: boolean) => void;
   disabled?: boolean;
+  onActiveChange?: (isActive: boolean) => void;
 }
 
 export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   onTranscriptReady,
   disabled = false,
+  onActiveChange,
 }) => {
   const { t, language } = useTranslation();
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
@@ -29,7 +33,9 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 
   const {
     state,
+    transcriptionStage,
     durationSeconds,
+    isApproachingLimit,
     amplitude,
     errorMessage,
     startRecording,
@@ -45,7 +51,13 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     onError: (err) => console.warn("Voice recording error:", err),
   });
 
-  // Reset drag offsets when recording finishes or cancels
+  // Notify parent component (Dashboard) when voice recording becomes active or idle
+  useEffect(() => {
+    const isActive = state !== "idle";
+    onActiveChange?.(isActive);
+  }, [state, onActiveChange]);
+
+  // Reset drag offsets when recording finishes, locks, or cancels
   useEffect(() => {
     if (state === "idle" || state === "locked" || state === "paused") {
       setDragOffset({ dx: 0, dy: 0 });
@@ -65,7 +77,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
     if (disabled || state === "transcribing" || state === "locked" || state === "paused") return;
-    if (e.button !== 0) return; // Only primary mouse/touch button
+    if (e.button !== 0) return; // Primary pointer button only
 
     try {
       e.currentTarget.setPointerCapture(e.pointerId);
@@ -79,7 +91,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (state !== "recording" || !pointerStartRef.current) return;
+    if (!pointerStartRef.current) return;
 
     const dx = e.clientX - pointerStartRef.current.x;
     const dy = e.clientY - pointerStartRef.current.y;
@@ -99,7 +111,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
 
     // 2. Slide LEFT to Cancel (dx <= -80px)
-    // Physical left is preserved in Urdu RTL so muscle memory remains identical
+    // Physical left is strictly preserved even in Urdu RTL
     if (dx <= -80) {
       cancelRecording();
       try {
@@ -122,8 +134,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     pointerStartRef.current = null;
     setDragOffset({ dx: 0, dy: 0 });
 
-    if (state === "recording") {
-      // User held and released cleanly without crossing cancel/lock thresholds
+    if (state === "recording" || state === "requesting_permission") {
       finishRecording();
     }
   };
@@ -136,7 +147,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
     pointerStartRef.current = null;
     setDragOffset({ dx: 0, dy: 0 });
-    if (state === "recording") {
+    if (state === "recording" || state === "requesting_permission") {
       cancelRecording();
     }
   };
@@ -159,26 +170,40 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // Amplitude Visualizer Bars
+  // Dynamic Waveform Calculation
   // ---------------------------------------------------------------------------
-  const renderAmplitudeBars = (barCount: number = 7) => {
+  const getBarHeight = (i: number, total: number): number => {
+    if (state === "paused") return 20; // Dim frozen resting height
+    const normalizedPos = i / (total - 1);
+    const bell = Math.sin(normalizedPos * Math.PI); // Parabolic center peak
+    const harmonic = Math.sin(i * 0.9 + amplitude * 5.0) * 0.2 + 0.8;
+    const baseHeight = 16;
+    const variableHeight = amplitude * 84 * (0.35 + 0.65 * bell) * harmonic;
+    return Math.min(100, Math.max(baseHeight, Math.round(baseHeight + variableHeight)));
+  };
+
+  // Render waveform bars
+  const renderWaveform = (totalBars: number = 22) => {
     const bars = [];
-    for (let i = 0; i < barCount; i++) {
-      // Calculate dynamic bar height offset based on amplitude and bar position
-      const phase = Math.sin((i / (barCount - 1)) * Math.PI);
-      const dynamicHeight = Math.max(
-        15,
-        Math.min(100, Math.round(amplitude * 100 * (0.4 + 0.6 * phase) + (state === "paused" ? 15 : 20)))
-      );
+    const fadeOpacity = Math.max(0.15, 1 - Math.abs(Math.min(0, dragOffset.dx)) / 75);
+
+    for (let i = 0; i < totalBars; i++) {
+      const height = getBarHeight(i, totalBars);
+      const isMobileHidden = i % 2 !== 0; // Show ~11 bars on small screens, 22 on desktop
       bars.push(
         <span
           key={i}
-          className={`w-1 rounded-full transition-all duration-100 ${
+          className={`w-[3px] rounded-full transition-all duration-75 ${
+            isMobileHidden ? "hidden sm:inline-block" : "inline-block"
+          } ${
             state === "paused"
-              ? "bg-slate-300 dark:bg-slate-600"
+              ? "bg-slate-300 dark:bg-slate-600 opacity-60"
               : "bg-red-500 dark:bg-red-400"
           }`}
-          style={{ height: `${dynamicHeight}%` }}
+          style={{
+            height: `${height}%`,
+            opacity: state === "paused" ? 0.6 : fadeOpacity,
+          }}
         />
       );
     }
@@ -186,58 +211,120 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   };
 
   // ---------------------------------------------------------------------------
-  // Transcribing State Indicator
+  // 1. ERROR STATE (In-composer row, preserving typed draft)
   // ---------------------------------------------------------------------------
-  if (state === "transcribing") {
+  if (state === "error") {
     return (
-      <div className="flex items-center gap-2 px-3 py-1.5 bg-blue-50/80 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800/50 rounded-xl text-xs text-blue-600 dark:text-blue-400 font-medium animate-pulse shadow-sm">
-        <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-        </svg>
-        <span>{t.voiceNote?.transcribing || "Transcribing voice note..."}</span>
+      <div className="w-full flex items-center justify-between gap-3 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
+        <div className="flex items-center gap-2">
+          <span className="text-sm">⚠️</span>
+          <span className="font-medium">{errorMessage || t.voiceNote?.uploadFailed || "Voice upload couldn't start"}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={resetError}
+            className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-medium text-xs shadow-sm transition-colors"
+          >
+            {t.voiceNote?.tryAgain || "Try again"}
+          </button>
+          <button
+            type="button"
+            onClick={resetError}
+            className="w-7 h-7 rounded-full flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-100 dark:hover:bg-amber-900/40 text-sm font-bold"
+            title="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
       </div>
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Locked Mode Dock Controls
+  // 2. TRANSCRIBING & UPLOADING FLOW (Seamless surface transition)
+  // ---------------------------------------------------------------------------
+  if (state === "transcribing") {
+    const isUploading = transcriptionStage === "uploading";
+    return (
+      <div className="w-full flex items-center justify-between gap-3 px-3.5 py-2 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/50 rounded-xl animate-pulse select-none">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="text-base flex-shrink-0">✨</span>
+          <div className="flex flex-col truncate">
+            <span className="text-xs font-semibold text-blue-700 dark:text-blue-300 truncate">
+              {isUploading
+                ? (t.voiceNote?.uploading || "Uploading securely...")
+                : (t.voiceNote?.transcribingVoice || "Transcribing your voice…")}
+            </span>
+            <span className="text-[10px] text-blue-600/80 dark:text-blue-400/80 font-normal truncate">
+              {t.voiceNote?.understandingLanguages || "Understanding Urdu / Roman Urdu / English"}
+            </span>
+          </div>
+        </div>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <svg className="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 3. LOCKED RECORDING MODE (Integrated composer dock with min 44x44 touch targets)
   // ---------------------------------------------------------------------------
   if (state === "locked" || state === "paused") {
     return (
-      <div className="flex items-center justify-between gap-3 w-full bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3.5 py-2 shadow-lg backdrop-blur-sm animate-fade-in">
-        {/* Left: Indicator, Timer, Amplitude bars */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span
-              className={`w-2.5 h-2.5 rounded-full ${
-                state === "paused"
-                  ? "bg-amber-400"
-                  : "bg-red-500 animate-ping"
-              }`}
-            />
-            <span className="font-mono text-xs font-semibold text-slate-700 dark:text-slate-200">
+      <div
+        className="w-full flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
+        dir="ltr"
+      >
+        {/* Left: Indicator, Timer, Waveform */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="relative flex h-2.5 w-2.5">
+              {state === "paused" ? (
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400" />
+              ) : (
+                <>
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+                </>
+              )}
+            </span>
+            <span className="font-mono text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100">
               {formatTime(durationSeconds)}
             </span>
+            {isApproachingLimit && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse">
+                {t.voiceNote?.approachingLimit || "15m limit"}
+              </span>
+            )}
           </div>
 
-          <div className="hidden sm:flex items-center gap-1 h-5 w-16">
-            {renderAmplitudeBars(6)}
+          <div className="flex items-center justify-center gap-0.5 sm:gap-1 h-6 px-1 overflow-hidden">
+            {renderWaveform(16)}
           </div>
         </div>
 
-        {/* Right: Action Buttons (Min 44x44 touch targets) */}
-        <div className="flex items-center gap-1.5">
+        {/* Right: Touch Target Controls (Min 44x44 touch hit areas) */}
+        <div className="flex items-center gap-1 flex-shrink-0">
           {/* Delete / Cancel Button */}
           <button
             type="button"
             onClick={cancelRecording}
-            className="w-10 h-10 min-w-[40px] rounded-full flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
             title={t.voiceNote?.deleteTooltip || "Delete recording"}
             aria-label="Delete recording"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+              />
             </svg>
           </button>
 
@@ -246,7 +333,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <button
               type="button"
               onClick={resumeRecording}
-              className="w-10 h-10 min-w-[40px] rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
               title={t.voiceNote?.resumeTooltip || "Resume recording"}
               aria-label="Resume recording"
             >
@@ -258,7 +345,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             <button
               type="button"
               onClick={pauseRecording}
-              className="w-10 h-10 min-w-[40px] rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+              className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
               title={t.voiceNote?.pauseTooltip || "Pause recording"}
               aria-label="Pause recording"
             >
@@ -268,11 +355,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             </button>
           )}
 
-          {/* Finish & Transcribe Button */}
+          {/* Finish & Transcribe Button (Primary) */}
           <button
             type="button"
             onClick={finishRecording}
-            className="w-10 h-10 min-w-[40px] rounded-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 text-white shadow-md hover:scale-105 transition-all"
+            className="w-11 h-11 min-w-[44px] min-h-[44px] rounded-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md hover:scale-105 transition-all"
             title={t.voiceNote?.finishTooltip || "Finish and transcribe"}
             aria-label="Finish and transcribe"
           >
@@ -286,94 +373,147 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   }
 
   // ---------------------------------------------------------------------------
-  // Active Press-and-Hold Gesture Active State
+  // 4. ACTIVE PRESS-AND-HOLD RECORDING STATE (WhatsApp-familiar Toolbar Row)
   // ---------------------------------------------------------------------------
-  const isPressHolding = state === "recording";
+  const isHolding = state === "recording" || state === "requesting_permission";
 
-  return (
-    <div className="relative inline-flex items-center">
-      {/* Floating gesture guide during Press-and-Hold */}
-      {isPressHolding && (
-        <div
-          className="absolute bottom-full mb-3 flex items-center gap-3 bg-slate-900/90 text-white px-3.5 py-1.5 rounded-full text-xs font-medium shadow-2xl backdrop-blur-md pointer-events-none z-30 animate-fade-in"
-          style={{
-            transform: `translate(${dragOffset.dx * 0.4}px, ${dragOffset.dy * 0.4}px)`,
-          }}
-        >
-          {/* Pulsing red dot */}
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
-          <span className="font-mono font-semibold">{formatTime(durationSeconds)}</span>
+  if (isHolding) {
+    const cancelRatio = Math.min(1, Math.abs(Math.min(0, dragOffset.dx)) / 80);
+    const lockRatio = Math.min(1, Math.abs(Math.min(0, dragOffset.dy)) / 65);
+    const isNearCancel = dragOffset.dx <= -45;
+    const isNearLock = dragOffset.dy <= -35;
 
-          {/* Amplitude mini-bars */}
-          <div className="flex items-center gap-0.5 h-3.5 w-10">
-            {renderAmplitudeBars(5)}
+    return (
+      <div
+        className="w-full flex items-center justify-between px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
+        dir="ltr"
+      >
+        {/* LEFT SECTION: 🔴 Red pulsing dot & Timer */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+          </span>
+          <span className="font-mono text-xs sm:text-sm font-semibold text-slate-800 dark:text-slate-100">
+            {formatTime(durationSeconds)}
+          </span>
+          {isApproachingLimit && (
+            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium px-1.5 py-0.2 bg-amber-100 dark:bg-amber-900/40 rounded-full animate-pulse">
+              {t.voiceNote?.approachingLimit || "15m limit"}
+            </span>
+          )}
+        </div>
+
+        {/* CENTER SECTION: Live Waveform & Slide-to-Cancel guidance */}
+        <div className="flex-1 flex items-center justify-center gap-2 sm:gap-3 px-2 overflow-hidden min-w-0">
+          {/* Live Waveform */}
+          <div className="flex items-center justify-center gap-0.5 sm:gap-1 h-6">
+            {renderWaveform(20)}
           </div>
 
-          <div className="h-3 w-px bg-white/20 mx-1" />
-
-          {/* Slide guidance */}
-          <div className="flex items-center gap-2 text-slate-300">
-            <span className="flex items-center gap-1 text-[11px]">
-              <span>←</span>
-              <span>{t.voiceNote?.slideToCancel || "Slide left to cancel"}</span>
+          {/* Slide-to-cancel guidance physically translated with finger */}
+          <div
+            className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 transition-transform duration-75 flex-shrink-0"
+            style={{
+              transform: `translateX(${Math.min(0, dragOffset.dx * 0.85)}px)`,
+            }}
+          >
+            <span
+              className={`transition-all duration-100 ${
+                isNearCancel ? "text-red-500 font-bold" : "text-slate-400"
+              }`}
+              style={{
+                transform: `scale(${1 + cancelRatio * 0.3})`,
+              }}
+            >
+              {isNearCancel ? "🗑️" : "←"}
             </span>
-            <span className="opacity-40">|</span>
-            <span className="flex items-center gap-1 text-[11px] text-blue-300">
-              <span>↑</span>
-              <span>{t.voiceNote?.slideUpToLock || "Lock"}</span>
+            <span
+              className={`text-[11px] sm:text-xs font-medium whitespace-nowrap transition-colors duration-100 ${
+                isNearCancel ? "text-red-600 dark:text-red-400 font-semibold" : "text-slate-500 dark:text-slate-400"
+              }`}
+            >
+              {t.voiceNote?.slideToCancel || "Slide left to cancel"}
             </span>
           </div>
         </div>
-      )}
 
-      {/* Primary Microphone Button */}
-      <button
-        ref={micButtonRef}
-        type="button"
-        disabled={disabled}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerCancel}
-        onKeyDown={handleKeyDown}
-        className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all select-none touch-none ${
-          isPressHolding
-            ? "bg-red-500 text-white scale-125 shadow-lg shadow-red-500/40 ring-4 ring-red-500/20"
-            : disabled
-            ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
-            : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-        }`}
-        title={t.voiceNote?.recordTooltip || "Record voice note (press and hold or click)"}
-        aria-label={t.voiceNote?.recordTooltip || "Record voice note"}
-      >
-        <svg
-          className={`w-4 h-4 transition-transform ${isPressHolding ? "scale-110" : ""}`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-          />
-        </svg>
-      </button>
-
-      {/* Temporary error toast if recording failed */}
-      {errorMessage && (
-        <div className="absolute bottom-full mb-2 left-0 w-64 p-2 bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-800 rounded-xl shadow-lg text-[11px] text-red-600 dark:text-red-300 flex items-start justify-between gap-2 z-30">
-          <span>{errorMessage}</span>
-          <button
-            type="button"
-            onClick={resetError}
-            className="text-red-500 hover:text-red-700 font-bold px-1"
+        {/* RIGHT SECTION: Upward Lock Affordance & Held Mic Anchor */}
+        <div className="flex items-center gap-2 flex-shrink-0 relative">
+          {/* Lock Affordance Trajectory Pill */}
+          <div
+            className={`absolute bottom-full mb-1 right-0 flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold transition-all pointer-events-none shadow-md ${
+              isNearLock
+                ? "bg-blue-600 text-white scale-110 ring-2 ring-blue-400/50"
+                : "bg-slate-800/90 dark:bg-slate-700/90 text-slate-200 backdrop-blur-sm"
+            }`}
+            style={{
+              transform: `translateY(${Math.min(0, Math.max(dragOffset.dy * 0.7, -40))}px)`,
+              opacity: Math.max(0.6, lockRatio),
+            }}
           >
-            ×
+            <span>🔒</span>
+            <span>↑ {t.voiceNote?.slideUpToLock || "Lock"}</span>
+          </div>
+
+          {/* Held Mic Button (Finger Anchor with Pointer Capture) */}
+          <button
+            ref={micButtonRef}
+            type="button"
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onKeyDown={handleKeyDown}
+            className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center bg-red-500 text-white scale-110 shadow-lg shadow-red-500/35 ring-4 ring-red-500/20 select-none touch-none transition-transform"
+            style={{
+              transform: `translateX(${Math.max(dragOffset.dx * 0.2, -16)}px) scale(1.15)`,
+            }}
+            aria-label="Recording active"
+          >
+            <svg className="w-5 h-5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.5}
+                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+              />
+            </svg>
           </button>
         </div>
-      )}
-    </div>
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // 5. IDLE STATE (Standard Mic Button in Composer Toolbar)
+  // ---------------------------------------------------------------------------
+  return (
+    <button
+      ref={micButtonRef}
+      type="button"
+      disabled={disabled}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      onKeyDown={handleKeyDown}
+      className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all select-none touch-none ${
+        disabled
+          ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+          : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+      }`}
+      title={t.voiceNote?.recordTooltip || "Record voice note (press and hold or click to dictate)"}
+      aria-label={t.voiceNote?.recordTooltip || "Record voice note"}
+    >
+      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+        />
+      </svg>
+    </button>
   );
 };

@@ -26,7 +26,9 @@ export function useVoiceRecorder({
   onError,
 }: UseVoiceRecorderOptions) {
   const [state, setState] = useState<VoiceRecordingState>("idle");
+  const [transcriptionStage, setTranscriptionStage] = useState<"uploading" | "transcribing" | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number>(0);
+  const [isApproachingLimit, setIsApproachingLimit] = useState<boolean>(false);
   const [amplitude, setAmplitude] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -45,6 +47,13 @@ export function useVoiceRecorder({
   const startTimeRef = useRef<number>(0);
   const accumulatedMsRef = useRef<number>(0);
   const isPausedRef = useRef<boolean>(false);
+
+  // Lifecycle race condition protection refs
+  const isPointerDownRef = useRef<boolean>(false);
+  const cancelRequestedRef = useRef<boolean>(false);
+  const lockRequestedRef = useRef<boolean>(false);
+  const activeSessionIdRef = useRef<number>(0);
+  const finishRecordingRef = useRef<(() => Promise<void>) | null>(null);
 
   // Detect supported mime type
   const getSupportedMimeType = useCallback((): string => {
@@ -81,7 +90,7 @@ export function useVoiceRecorder({
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
       try {
         audioContextRef.current.close();
-      } catch (e) {
+      } catch {
         // ignore
       }
       audioContextRef.current = null;
@@ -130,12 +139,18 @@ export function useVoiceRecorder({
 
   // Start recording
   const startRecording = useCallback(async () => {
+    const sessionId = ++activeSessionIdRef.current;
+    isPointerDownRef.current = true;
+    cancelRequestedRef.current = false;
+    lockRequestedRef.current = false;
+
     setErrorMessage(null);
     setState("requesting_permission");
     chunksRef.current = [];
     accumulatedMsRef.current = 0;
     isPausedRef.current = false;
     setDurationSeconds(0);
+    setIsApproachingLimit(false);
 
     const mime = getSupportedMimeType();
     if (!mime && typeof MediaRecorder === "undefined") {
@@ -156,6 +171,19 @@ export function useVoiceRecorder({
         },
       });
 
+      // RACE CONDITION CHECK:
+      // If user released, cancelled, or started a new session while awaiting permission:
+      if (
+        activeSessionIdRef.current !== sessionId ||
+        cancelRequestedRef.current ||
+        (!isPointerDownRef.current && !lockRequestedRef.current)
+      ) {
+        stream.getTracks().forEach((track) => track.stop());
+        cleanupMedia();
+        setState("idle");
+        return;
+      }
+
       mediaStreamRef.current = stream;
       startVisualizer(stream);
 
@@ -173,7 +201,12 @@ export function useVoiceRecorder({
 
       recorder.start(250); // Emit chunks every 250ms
       startTimeRef.current = Date.now();
-      setState("recording");
+
+      if (lockRequestedRef.current) {
+        setState("locked");
+      } else {
+        setState("recording");
+      }
 
       // Active duration timer
       timerRef.current = window.setInterval(() => {
@@ -182,9 +215,14 @@ export function useVoiceRecorder({
           const secs = Math.floor(activeMs / 1000);
           setDurationSeconds(secs);
 
-          // 15-minute maximum limit (900 seconds)
+          // Subtle warning at 14:30 (870 seconds)
+          if (secs >= 870) {
+            setIsApproachingLimit(true);
+          }
+
+          // 15-minute maximum limit (900 seconds): auto-FINISH and transcribe
           if (secs >= 900) {
-            finishRecording();
+            finishRecordingRef.current?.();
           }
         }
       }, 250);
@@ -204,6 +242,8 @@ export function useVoiceRecorder({
   const lockRecording = useCallback(() => {
     if (state === "recording") {
       setState("locked");
+    } else if (state === "requesting_permission") {
+      lockRequestedRef.current = true;
     }
   }, [state]);
 
@@ -230,10 +270,15 @@ export function useVoiceRecorder({
 
   // Cancel recording (Immediate zero-network discard)
   const cancelRecording = useCallback(async () => {
+    cancelRequestedRef.current = true;
+    isPointerDownRef.current = false;
+    lockRequestedRef.current = false;
     const audioId = activeAudioIdRef.current;
     cleanupMedia();
     chunksRef.current = [];
     setDurationSeconds(0);
+    setIsApproachingLimit(false);
+    setTranscriptionStage(null);
     setState("idle");
 
     if (audioId) {
@@ -248,6 +293,14 @@ export function useVoiceRecorder({
 
   // Finish and transcribe
   const finishRecording = useCallback(async () => {
+    isPointerDownRef.current = false;
+
+    // Handle release while permission request is still resolving
+    if (state === "requesting_permission") {
+      cancelRecording();
+      return;
+    }
+
     if (!mediaRecorderRef.current) return;
 
     const finalActiveMs = isPausedRef.current
@@ -255,7 +308,7 @@ export function useVoiceRecorder({
       : accumulatedMsRef.current + (Date.now() - startTimeRef.current);
     const finalSecs = finalActiveMs / 1000;
 
-    // Discard if under 600ms
+    // Discard if under 600ms (0.6s short tap: zero upload, no error)
     if (finalSecs < 0.6) {
       cancelRecording();
       return;
@@ -269,10 +322,12 @@ export function useVoiceRecorder({
       const rawBlob = new Blob(chunksRef.current, { type: mime });
       if (rawBlob.size === 0) {
         setState("idle");
+        setTranscriptionStage(null);
         return;
       }
 
       setState("transcribing");
+      setTranscriptionStage("uploading");
       try {
         // 1. Presign upload URL
         const presignRes = await presignAudioUpload({
@@ -288,6 +343,7 @@ export function useVoiceRecorder({
         await uploadAudioBlobToGCS(presignRes.upload_url, rawBlob, mime);
 
         // 3. Request speech-to-text
+        setTranscriptionStage("transcribing");
         const transcribeRes = await transcribeAudioNote(presignRes.audio_id, {
           gcs_key: presignRes.gcs_key,
           content_type: mime,
@@ -296,16 +352,20 @@ export function useVoiceRecorder({
         });
 
         activeAudioIdRef.current = null;
+        setTranscriptionStage(null);
         setState("idle");
 
         if (transcribeRes.transcript) {
           onTranscriptReady(transcribeRes.transcript, transcribeRes.transliterated);
         }
       } catch (err: unknown) {
-        const errorDetail = (err as { response?: { data?: { detail?: string } }; message?: string })?.response?.data?.detail || (err as Error)?.message || "Transcription failed";
-        setErrorMessage(errorDetail);
+        console.error("Voice recording / transcription failed:", err);
+        // Clean user-friendly message without leaking GCS, signed URLs, HTTP 500, or Gemini internals
+        const friendlyError = "Voice upload couldn't start";
+        setErrorMessage(friendlyError);
+        setTranscriptionStage(null);
         setState("error");
-        onError?.(errorDetail);
+        onError?.(friendlyError);
 
         if (activeAudioIdRef.current) {
           try {
@@ -324,7 +384,12 @@ export function useVoiceRecorder({
     } else {
       await handleStop();
     }
-  }, [cancelRecording, cleanupMedia, languageHint, onError, onTranscriptReady]);
+  }, [cancelRecording, cleanupMedia, languageHint, onError, onTranscriptReady, state]);
+
+  // Keep finishRecordingRef in sync for timer interval
+  useEffect(() => {
+    finishRecordingRef.current = finishRecording;
+  }, [finishRecording]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -335,7 +400,9 @@ export function useVoiceRecorder({
 
   return {
     state,
+    transcriptionStage,
     durationSeconds,
+    isApproachingLimit,
     amplitude,
     errorMessage,
     startRecording,

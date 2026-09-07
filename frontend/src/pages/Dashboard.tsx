@@ -23,6 +23,7 @@ import Sidebar from "../components/Sidebar";
 import TutorialModal from "../components/TutorialModal";
 import { LocalizedBrand } from "../components/LocalizedBrand";
 import { VoiceRecorder } from "../components/VoiceRecorder";
+import { ComposerPlusMenu } from "../components/ComposerPlusMenu";
 import SummaryAudioPlayer from "../components/SummaryAudioPlayer";
 import { useAuthStore } from "../store/authStore";
 import { useSessionStore, deriveSessionTitle } from "../store/sessionStore";
@@ -69,7 +70,6 @@ export default function Dashboard() {
   const [input, setInput] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState("AUTO");
   const [webSearchMode, setWebSearchMode] = useState<"auto" | "on" | "off">("auto");
-  const [isWebSearchDropdownOpen, setIsWebSearchDropdownOpen] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   
   const [isProcessing, setIsProcessing] = useState(false);
@@ -118,7 +118,13 @@ export default function Dashboard() {
   const [attachmentContextId, setAttachmentContextId] = useState<string | null>(null);
   const [attachedFiles, setAttachedFiles] = useState<AttachmentItem[]>([]);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+
+  // ── Composer Plus Menu state ─────────────────────────────────────────────
+  const docInputRef = useRef<HTMLInputElement>(null);
+  const imgInputRef = useRef<HTMLInputElement>(null);
+  // Map<attachment-id, object-URL> for image previews — cleaned up on removal
+  const imagePreviewUrlsRef = useRef<Map<string, string>>(new Map());
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -142,7 +148,7 @@ export default function Dashboard() {
 
     if (attachedFiles.length + files.length > 5) {
       setUploadError(t.attachments?.maxFilesExceeded || "Maximum 5 files allowed per message");
-      if (fileInputRef.current) fileInputRef.current.value = "";
+      e.target.value = "";
       return;
     }
 
@@ -163,6 +169,11 @@ export default function Dashboard() {
 
       const tempId = "temp-" + Math.random().toString(36).substring(2, 9);
       const mime = file.type || "application/octet-stream";
+
+      // Generate preview URL for images immediately (so thumbnail renders before upload completes)
+      if (mime.startsWith("image/")) {
+        imagePreviewUrlsRef.current.set(tempId, URL.createObjectURL(file));
+      }
 
       const newFileItem: AttachmentItem = {
         id: tempId,
@@ -187,6 +198,12 @@ export default function Dashboard() {
           });
 
           setAttachmentContextId(presignRes.context_id);
+
+          // Move preview URL from tempId to real ID
+          if (imagePreviewUrlsRef.current.has(tempId)) {
+            imagePreviewUrlsRef.current.set(presignRes.attachment_id, imagePreviewUrlsRef.current.get(tempId)!);
+            imagePreviewUrlsRef.current.delete(tempId);
+          }
 
           setAttachedFiles(prev => prev.map(f => f.id === tempId ? {
             ...f,
@@ -222,6 +239,11 @@ export default function Dashboard() {
           } : f));
         } catch (err: any) {
           console.error("Upload error:", err);
+          // Clean up preview URL on error
+          if (imagePreviewUrlsRef.current.has(tempId)) {
+            URL.revokeObjectURL(imagePreviewUrlsRef.current.get(tempId)!);
+            imagePreviewUrlsRef.current.delete(tempId);
+          }
           setAttachedFiles(prev => prev.map(f => (f.id === tempId) ? {
             ...f,
             status: "error",
@@ -232,11 +254,16 @@ export default function Dashboard() {
       })();
     }
 
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    e.target.value = "";
   };
 
   const handleRemoveAttachedFile = async (fileId: string) => {
     const fileToRemove = attachedFiles.find(f => f.id === fileId);
+    // Revoke image preview URL to prevent memory leaks
+    if (imagePreviewUrlsRef.current.has(fileId)) {
+      URL.revokeObjectURL(imagePreviewUrlsRef.current.get(fileId)!);
+      imagePreviewUrlsRef.current.delete(fileId);
+    }
     setAttachedFiles(prev => prev.filter(f => f.id !== fileId));
     if (fileToRemove && !fileToRemove.id.startsWith("temp-")) {
       try {
@@ -1039,103 +1066,166 @@ export default function Dashboard() {
         {/* Input Command Center */}
         <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 bg-gradient-to-t from-slate-50 via-slate-50/90 dark:from-[#06080f] dark:via-[#06080f]/90 to-transparent z-20 pointer-events-none">
           <div className="max-w-3xl mx-auto relative pointer-events-auto">
+
+            {/* Hidden file inputs — triggered via Plus menu */}
+            <input
+              ref={docInputRef}
+              type="file"
+              multiple
+              accept=".pdf,.docx,.txt,.md,.csv,.xlsx"
+              onChange={handleFileSelect}
+              className="hidden"
+              aria-hidden="true"
+            />
+            <input
+              ref={imgInputRef}
+              type="file"
+              multiple
+              accept=".png,.jpg,.jpeg,.webp"
+              onChange={handleFileSelect}
+              className="hidden"
+              aria-hidden="true"
+            />
+
             <div className={`bg-white dark:bg-slate-900/90 backdrop-blur-md border rounded-2xl shadow-lg dark:shadow-none overflow-visible transition-all ${isConveneBoardSelected ? 'border-blue-500/50 shadow-blue-500/10 ring-1 ring-blue-500/20' : 'border-slate-200 dark:border-white/10 focus-within:ring-2 focus-within:ring-blue-500/50'}`}>
-              
-              {/* Attached file chips in composer */}
-              {attachedFiles.length > 0 && (
-                <div className="flex flex-wrap gap-2 px-4 pt-3 pb-1 border-b border-slate-100 dark:border-white/[0.06]">
-                  {attachedFiles.map((file) => (
-                    <div
-                      key={file.id}
-                      className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm transition-all"
-                    >
-                      <span className="text-sm">{getFileIcon(file.filename, file.content_type)}</span>
-                      <span className="max-w-[140px] sm:max-w-[200px] truncate">{file.filename}</span>
-                      <span className="text-[10px] text-slate-400">({formatFileSize(file.size_bytes)})</span>
-                      {file.status === "uploading" || file.status === "processing" ? (
-                        <span className="flex items-center gap-1 text-[10px] text-blue-500">
-                          <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                          </svg>
-                          {file.status === "uploading" ? `${file.upload_progress || 0}%` : (t.attachments?.processing || "Processing...")}
-                        </span>
-                      ) : file.status === "ready" ? (
-                        <span className="text-emerald-500 text-xs font-bold" title={t.attachments?.ready || "Ready"}>✓</span>
-                      ) : (
-                        <span className="text-red-500 text-xs font-bold" title={file.error || t.attachments?.error || "Error"}>⚠️</span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveAttachedFile(file.id)}
-                        className="text-slate-400 hover:text-slate-600 dark:hover:text-white p-0.5 rounded transition-colors"
-                        title={t.attachments?.remove || "Remove"}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
+
+              {/* ── Attachment area (above textarea) ─────────────────────── */}
+              {(() => {
+                const imageFiles = attachedFiles.filter(f => f.content_type.startsWith("image/"));
+                const docFiles   = attachedFiles.filter(f => !f.content_type.startsWith("image/"));
+                if (attachedFiles.length === 0) return null;
+                return (
+                  <div className="px-3 pt-3 pb-0">
+                    {/* Image thumbnails row */}
+                    {imageFiles.length > 0 && (
+                      <div className="flex gap-2 mb-2 overflow-x-auto pb-1">
+                        {imageFiles.map(file => {
+                          const previewUrl = imagePreviewUrlsRef.current.get(file.id);
+                          return (
+                            <div
+                              key={file.id}
+                              className="relative flex-shrink-0 w-14 h-14 rounded-xl overflow-hidden ring-1 ring-slate-200/80 dark:ring-white/10 bg-slate-100 dark:bg-slate-800 shadow-sm"
+                              title={file.filename}
+                            >
+                              {previewUrl ? (
+                                <img src={previewUrl} alt={file.filename} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-xl">🖼️</div>
+                              )}
+                              {/* Status overlay */}
+                              {(file.status === "uploading" || file.status === "processing") && (
+                                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                                  <span className="text-white text-[10px] font-bold">
+                                    {file.status === "uploading" ? `${file.upload_progress || 0}%` : "…"}
+                                  </span>
+                                </div>
+                              )}
+                              {file.status === "error" && (
+                                <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center">
+                                  <span className="text-white text-sm">⚠️</span>
+                                </div>
+                              )}
+                              {/* Remove × */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveAttachedFile(file.id)}
+                                aria-label={`Remove ${file.filename}`}
+                                className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white text-[10px] transition-colors"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {/* Document chips */}
+                    {docFiles.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {docFiles.map(file => (
+                          <div
+                            key={file.id}
+                            className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm max-w-[220px] transition-all"
+                          >
+                            <span className="text-sm flex-shrink-0">{getFileIcon(file.filename, file.content_type)}</span>
+                            <span className="truncate">{file.filename}</span>
+                            {/* Status badge */}
+                            {file.status === "uploading" ? (
+                              <span className="flex items-center gap-1 text-[10px] text-blue-500 whitespace-nowrap flex-shrink-0">
+                                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                                {file.upload_progress || 0}%
+                              </span>
+                            ) : file.status === "processing" ? (
+                              <span className="flex items-center gap-1 text-[10px] text-amber-500 whitespace-nowrap flex-shrink-0">
+                                <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                                </svg>
+                                {t.attachments?.processing || "Processing…"}
+                              </span>
+                            ) : file.status === "ready" ? (
+                              <span className="text-emerald-500 text-xs font-bold flex-shrink-0" title={t.attachments?.ready || "Ready"}>✓</span>
+                            ) : (
+                              <span className="text-red-500 text-xs font-bold flex-shrink-0" title={file.error || t.attachments?.error || "Error"}>⚠️</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveAttachedFile(file.id)}
+                              aria-label={`Remove ${file.filename}`}
+                              className="flex-shrink-0 w-4 h-4 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-[10px]"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+
 
               {uploadError && (
                 <div className="px-4 pt-2 text-xs text-red-500 font-medium flex items-center gap-1">
                   <span>⚠️</span>
                   <span>{uploadError}</span>
+                  <button type="button" onClick={() => setUploadError(null)} className="ml-auto text-slate-400 hover:text-slate-600 text-xs">✕</button>
                 </div>
               )}
 
+              {/* Textarea — visually dominant */}
               <textarea
                 ref={textareaRef}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                onKeyDown={() => {
-                  // Let default behavior (newline) happen for Enter, including Shift+Enter
-                }}
                 placeholder={t.chat.inputPlaceholder}
+                aria-label={t.chat.inputPlaceholder}
                 className="w-full bg-transparent border-none py-3.5 sm:py-4 px-4 sm:px-5 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:ring-0 resize-none custom-scrollbar text-sm sm:text-base outline-none"
                 rows={1}
                 style={{ minHeight: '56px' }}
               />
 
-              <div className="flex items-center justify-between px-2 pb-2">
-                <div className="flex items-center gap-2 relative">
-                  {/* Custom Dropdown for Template */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                      className="flex items-center gap-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
-                    >
-                      {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
-                      <svg className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    
-                    {isDropdownOpen && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)} />
-                        <div className={`absolute bottom-full ${isRTL ? "right-0" : "left-0"} mb-2 w-56 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in`}>
-                          {Object.keys(TEMPLATES).map((key) => (
-                            <button
-                              key={key}
-                              onClick={() => {
-                                setSelectedTemplate(key);
-                                setIsDropdownOpen(false);
-                              }}
-                              className={`w-full text-start px-4 py-3 text-sm transition-colors ${selectedTemplate === key ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
-                            >
-                              <div className="font-medium">{t.templates[key]?.name || TEMPLATES[key as keyof typeof TEMPLATES].name}</div>
-                              <div className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{t.templates[key]?.description || TEMPLATES[key as keyof typeof TEMPLATES].description}</div>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  
+              <div className="relative min-h-[44px] flex items-center justify-between px-2 pb-2">
+
+                {/* LEFT: + (Plus) and Convene toggle — hidden during voice */}
+                <div className={`flex items-center gap-2 relative transition-opacity duration-150 ${isVoiceActive ? 'hidden' : 'flex'}`}>
+
+                  {/* Plus button — replaces paperclip + web dropdown */}
+                  <ComposerPlusMenu
+                    docInputRef={docInputRef}
+                    imgInputRef={imgInputRef}
+                    webSearchMode={webSearchMode}
+                    onWebSearchModeChange={setWebSearchMode}
+                    disabled={isProcessing || attachedFiles.length >= 5}
+                  />
+
                   {/* Convene Toggle */}
                   <button
+                    type="button"
                     onClick={() => setIsConveneBoardSelected(!isConveneBoardSelected)}
                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${isConveneBoardSelected ? 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 ring-1 ring-blue-500/50' : 'text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                   >
@@ -1144,95 +1234,51 @@ export default function Dashboard() {
                     </svg>
                     {t.chat.conveneToggle}
                   </button>
-
-                  {/* Paperclip file attach button */}
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isProcessing || attachedFiles.length >= 5}
-                    className={`flex items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-colors ${attachedFiles.length > 0 ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                    title={t.attachments?.attachTooltip || "Attach documents"}
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                    </svg>
-                    {attachedFiles.length > 0 && (
-                      <span className="bg-blue-600 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                        {attachedFiles.length}
-                      </span>
-                    )}
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    accept=".pdf,.docx,.txt,.md,.csv,.xlsx,.png,.jpg,.jpeg,.webp"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-
-                  {/* Web Research Mode Dropdown */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setIsWebSearchDropdownOpen(!isWebSearchDropdownOpen)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        webSearchMode === 'off'
-                          ? 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
-                          : webSearchMode === 'on'
-                          ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 ring-1 ring-blue-500/40'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'
-                      }`}
-                      title={t.webSearch?.tooltip || "Web Research (Auto / On / Off)"}
-                    >
-                      <span className="text-sm">🌐</span>
-                      <span>
-                        {webSearchMode === 'auto'
-                          ? (t.webSearch?.modeAuto || "Auto")
-                          : webSearchMode === 'on'
-                          ? (t.webSearch?.modeOn || "On")
-                          : (t.webSearch?.modeOff || "Off")}
-                      </span>
-                      <svg className={`w-3 h-3 transition-transform ${isWebSearchDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                    {isWebSearchDropdownOpen && (
-                      <>
-                        <div className="fixed inset-0 z-10" onClick={() => setIsWebSearchDropdownOpen(false)} />
-                        <div className={`absolute bottom-full ${isRTL ? "right-0" : "left-0"} mb-2 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in text-xs`}>
-                          {(['auto', 'on', 'off'] as const).map((m) => (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => {
-                                setWebSearchMode(m);
-                                setIsWebSearchDropdownOpen(false);
-                              }}
-                              className={`w-full text-start px-3.5 py-2.5 flex items-center justify-between transition-colors ${
-                                webSearchMode === m
-                                  ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium'
-                                  : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'
-                              }`}
-                            >
-                              <span>
-                                {m === 'auto'
-                                  ? (t.webSearch?.modeAuto || "Auto Research")
-                                  : m === 'on'
-                                  ? (t.webSearch?.modeOn || "Research On")
-                                  : (t.webSearch?.modeOff || "Research Off")}
-                              </span>
-                              {webSearchMode === m && <span className="text-blue-500 font-bold">✓</span>}
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 pr-1">
-                  {isResearching && (
+                {/* RIGHT: Template selector + Mic + Send/Stop */}
+                <div className={`flex items-center gap-2 pr-1 ${isVoiceActive ? 'w-full' : ''}`}>
+
+                  {/* Template / Model selector — right side, before mic */}
+                  {!isVoiceActive && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+                        className="flex items-center gap-2 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                      >
+                        {t.templates[selectedTemplate]?.name || TEMPLATES[selectedTemplate as keyof typeof TEMPLATES].name}
+                        <svg className={`w-3 h-3 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+
+                      {isDropdownOpen && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setIsDropdownOpen(false)} />
+                          <div className={`absolute bottom-full ${isRTL ? "left-0" : "right-0"} mb-2 w-72 max-w-[calc(100vw-2rem)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-20 overflow-hidden animate-fade-in`}>
+                            {Object.keys(TEMPLATES).map((key) => (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedTemplate(key);
+                                  setIsDropdownOpen(false);
+                                }}
+                                className={`w-full text-start px-4 py-3 text-sm transition-colors ${selectedTemplate === key ? 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 font-medium' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700'}`}
+                              >
+                                <div className="font-medium">{t.templates[key]?.name || TEMPLATES[key as keyof typeof TEMPLATES].name}</div>
+                                <div className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">{t.templates[key]?.description || TEMPLATES[key as keyof typeof TEMPLATES].description}</div>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Researching indicator */}
+                  {isResearching && !isVoiceActive && (
                     <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-blue-600 dark:text-blue-400 animate-pulse px-2.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 rounded-full font-medium">
                       <svg className="w-3 h-3 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
@@ -1241,51 +1287,59 @@ export default function Dashboard() {
                       <span>{t.webSearch?.researching || "Searching the web..."}</span>
                     </span>
                   )}
+
+                  {/* Mic */}
                   {!isProcessing && (
                     <VoiceRecorder
                       onTranscriptReady={handleVoiceTranscript}
                       disabled={isProcessing}
+                      onActiveChange={setIsVoiceActive}
                     />
                   )}
-                  {isProcessing ? (
-                    <button
-                      onClick={() => {
-                        abortControllerRef.current?.abort();
-                        // Freeze all in-progress agents in the canvas immediately
-                        setActiveMeetingData(prev => {
-                          if (!prev || !prev.streams) return prev;
-                          const frozen: typeof prev.streams = {};
-                          for (const key of Object.keys(prev.streams)) {
-                            frozen[key] = { ...prev.streams![key], status: "done" };
-                          }
-                          return { ...prev, streams: frozen };
-                        });
-                        setIsProcessing(false);
-                      }}
-                      className="w-8 h-8 rounded-full flex items-center justify-center bg-red-100 hover:bg-red-200 dark:bg-red-500/20 dark:hover:bg-red-500/30 text-red-600 dark:text-red-400 transition-colors shadow-sm"
-                      title={t.chat.stopTooltip}
-                    >
-                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                        <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={handleSend}
-                      disabled={!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing")}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm ${
-                        (!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing"))
-                          ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
-                          : isConveneBoardSelected
-                          ? 'bg-gradient-to-r from-blue-600 to-blue-800 text-white hover:scale-105 shadow-blue-500/20'
-                          : 'bg-blue-500 text-white hover:scale-105 hover:bg-blue-600'
-                      }`}
-                      title={t.chat.sendTooltip}
-                    >
-                      <svg className={`w-4 h-4 ${isRTL ? "-scale-x-100" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
-                      </svg>
-                    </button>
+
+                  {/* Send / Stop */}
+                  {!isVoiceActive && (
+                    isProcessing ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          abortControllerRef.current?.abort();
+                          setActiveMeetingData(prev => {
+                            if (!prev || !prev.streams) return prev;
+                            const frozen: typeof prev.streams = {};
+                            for (const key of Object.keys(prev.streams)) {
+                              frozen[key] = { ...prev.streams![key], status: "done" };
+                            }
+                            return { ...prev, streams: frozen };
+                          });
+                          setIsProcessing(false);
+                        }}
+                        className="w-8 h-8 rounded-full flex items-center justify-center bg-red-100 hover:bg-red-200 dark:bg-red-500/20 dark:hover:bg-red-500/30 text-red-600 dark:text-red-400 transition-colors shadow-sm"
+                        title={t.chat.stopTooltip}
+                      >
+                        <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+                          <rect x="6" y="6" width="12" height="12" rx="2" ry="2" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleSend}
+                        disabled={!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing")}
+                        className={`w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-sm ${
+                          (!input.trim() || attachedFiles.some(f => f.status === "uploading" || f.status === "processing"))
+                            ? 'bg-slate-100 dark:bg-slate-800 text-slate-400 cursor-not-allowed'
+                            : isConveneBoardSelected
+                            ? 'bg-gradient-to-r from-blue-600 to-blue-800 text-white hover:scale-105 shadow-blue-500/20'
+                            : 'bg-blue-500 text-white hover:scale-105 hover:bg-blue-600'
+                        }`}
+                        title={t.chat.sendTooltip}
+                      >
+                        <svg className={`w-4 h-4 ${isRTL ? "-scale-x-100" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 12h14M12 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    )
                   )}
                 </div>
               </div>

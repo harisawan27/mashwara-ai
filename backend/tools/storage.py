@@ -242,9 +242,14 @@ class GCSStorageClient:
                 self._client = None
         return self._client
 
-    def generate_signed_upload_url(self, storage_key: str, content_type: str) -> str:
+    def generate_signed_upload_url(
+        self,
+        storage_key: str,
+        content_type: str,
+        expires_minutes: int = SIGNED_URL_EXPIRY_MINUTES,
+    ) -> str:
         """
-        Generates a V4 signed PUT URL with 5-minute expiry bound to content_type.
+        Generates a V4 signed PUT URL with expiry bound to content_type.
         Uses Cloud Run runtime service account via ADC or service-account email.
         """
         client = self.client
@@ -272,7 +277,7 @@ class GCSStorageClient:
             # Generate V4 signed URL
             url = blob.generate_signed_url(
                 version="v4",
-                expiration=datetime.timedelta(minutes=SIGNED_URL_EXPIRY_MINUTES),
+                expiration=datetime.timedelta(minutes=expires_minutes),
                 method="PUT",
                 content_type=content_type,
                 service_account_email=service_account_email,
@@ -447,12 +452,30 @@ class GCSStorageClient:
 storage_client = GCSStorageClient()
 
 
-def generate_signed_upload_url(storage_key: str, content_type: str) -> str:
+def generate_signed_upload_url(
+    storage_key: str,
+    content_type: str,
+    expires_minutes: int = SIGNED_URL_EXPIRY_MINUTES,
+) -> str:
     """Convenience wrapper for storage_client.generate_signed_upload_url."""
-    return storage_client.generate_signed_upload_url(storage_key, content_type)
+    return storage_client.generate_signed_upload_url(
+        storage_key=storage_key,
+        content_type=content_type,
+        expires_minutes=expires_minutes,
+    )
 
 
-generate_v4_upload_signed_url = generate_signed_upload_url
+def generate_v4_upload_signed_url(
+    object_name: str,
+    content_type: str,
+    expires_minutes: int = SIGNED_URL_EXPIRY_MINUTES,
+) -> str:
+    """Explicit V4 signed upload URL generator accepting (object_name, content_type, expires_minutes)."""
+    return storage_client.generate_signed_upload_url(
+        storage_key=object_name,
+        content_type=content_type,
+        expires_minutes=expires_minutes,
+    )
 
 
 def verify_uploaded_blob(storage_key: str, max_size_bytes: int = MAX_FILE_SIZE_BYTES) -> Tuple[bool, int, Optional[str]]:

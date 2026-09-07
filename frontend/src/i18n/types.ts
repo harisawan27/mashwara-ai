@@ -213,6 +213,7 @@ export interface TranslationSchema {
   };
   attachments: {
     attachFiles: string;
+    attachImages: string;
     attachTooltip: string;
     uploading: string;
     processing: string;
@@ -246,6 +247,12 @@ export interface TranslationSchema {
     locked: string;
     paused: string;
     transcribing: string;
+    uploading: string;
+    transcribingVoice: string;
+    understandingLanguages: string;
+    uploadFailed: string;
+    tryAgain: string;
+    approachingLimit: string;
     deleteTooltip: string;
     pauseTooltip: string;
     resumeTooltip: string;
