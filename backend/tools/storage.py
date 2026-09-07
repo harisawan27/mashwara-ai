@@ -28,6 +28,20 @@ MAX_FILES_PER_CONTEXT = 5
 MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024       # 20 MB
 MAX_COMBINED_SIZE_BYTES = 50 * 1024 * 1024   # 50 MB
 SIGNED_URL_EXPIRY_MINUTES = 5
+DEFAULT_RUNTIME_SERVICE_ACCOUNT_EMAIL = "971578232755-compute@developer.gserviceaccount.com"
+
+
+def _resolve_service_account_email(credentials: Any = None) -> str:
+    """Resolve a real IAM signer email without accepting ADC's ``default`` sentinel."""
+    env_email = (os.getenv("GCS_SERVICE_ACCOUNT_EMAIL") or "").strip()
+    if env_email and env_email.lower() != "default":
+        return env_email
+
+    credential_email = (getattr(credentials, "service_account_email", None) or "").strip()
+    if credential_email and credential_email.lower() != "default":
+        return credential_email
+
+    return DEFAULT_RUNTIME_SERVICE_ACCOUNT_EMAIL
 
 
 def _signed_url_auth_kwargs() -> Dict[str, Any]:
@@ -39,20 +53,15 @@ def _signed_url_auth_kwargs() -> Dict[str, Any]:
     ``service_account_email`` instead.
     """
     credentials = None
-    service_account_email = None
 
     try:
         credentials, _ = google.auth.default()
-        service_account_email = getattr(credentials, "service_account_email", None)
     except Exception:
         # Local tests may use a mocked Storage client without ADC.
         pass
 
-    if not service_account_email:
-        service_account_email = os.getenv(
-            "GCS_SERVICE_ACCOUNT_EMAIL",
-            "971578232755-compute@developer.gserviceaccount.com",
-        )
+    service_account_email = _resolve_service_account_email(credentials)
+    logger.info("Using IAM signer service account: %s", service_account_email)
 
     kwargs: Dict[str, Any] = {"service_account_email": service_account_email}
     if credentials is not None and not isinstance(credentials, Signing):
