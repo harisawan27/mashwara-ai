@@ -18,10 +18,18 @@ from typing import Dict, Any, Optional
 from google import genai
 from google.genai import types
 
-from agents.board_config import TRANSCRIBE_MODEL, TRANSLITERATION_MODEL
+from agents.board_config import (
+    TRANSCRIBE_MODEL,
+    TRANSCRIBE_FALLBACK_MODEL,
+    TRANSLITERATION_MODEL,
+)
 from tools.storage import GCSStorageClient, get_audio_extension_for_mime
 
 logger = logging.getLogger("mashwara_ai.transcription")
+
+
+class NoSpeechDetectedError(ValueError):
+    """Raised when STT succeeds but the recording contains no usable speech."""
 
 # ---------------------------------------------------------------------------
 # High-Value Domain Vocabulary (30 Focused Terms)
@@ -153,7 +161,8 @@ def transcribe_voice_note(
         raise ValueError(f"Temporary audio recording not found in storage: {err or 'Missing object'}")
 
     # Create temporary local file
-    ext = get_audio_extension_for_mime(content_type)
+    normalized_content_type = (content_type or "audio/webm").split(";", 1)[0].strip().lower()
+    ext = get_audio_extension_for_mime(normalized_content_type)
     temp_fd, temp_local_path = tempfile.mkstemp(suffix=ext, prefix="mashwara_stt_")
     os.close(temp_fd)
 
@@ -170,23 +179,34 @@ def transcribe_voice_note(
         logger.info(f"Uploading {len(audio_bytes)} bytes audio to Gemini Files API...")
         file_ref = genai_client.files.upload(
             file=temp_local_path,
-            config=types.UploadFileConfig(mime_type=content_type)
+            config=types.UploadFileConfig(mime_type=normalized_content_type)
         )
         gemini_file_name = file_ref.name
         logger.info(f"Gemini Files upload complete: {gemini_file_name}")
 
-        # 3. Transcribe with gemini-3.5-transcribe
-        prompt = build_transcription_prompt(language)
+        # 3. Use the dedicated STT model with its supported minimal contract.
+        # Prompts and text-generation settings are not valid inputs for this model.
         logger.info(f"Invoking {TRANSCRIBE_MODEL} for speech-to-text...")
-        response = genai_client.models.generate_content(
-            model=TRANSCRIBE_MODEL,
-            contents=[file_ref, prompt],
-            config=types.GenerateContentConfig(
-                temperature=0.0,
+        try:
+            response = genai_client.models.generate_content(
+                model=TRANSCRIBE_MODEL,
+                contents=[file_ref],
             )
-        )
+        except Exception as primary_error:
+            # General audio understanding provides a resilient fallback while
+            # preserving the same uploaded file and privacy cleanup lifecycle.
+            logger.warning(
+                f"Dedicated STT failed ({primary_error}); retrying with {TRANSCRIBE_FALLBACK_MODEL}."
+            )
+            response = genai_client.models.generate_content(
+                model=TRANSCRIBE_FALLBACK_MODEL,
+                contents=[file_ref, build_transcription_prompt(language)],
+                config=types.GenerateContentConfig(temperature=0.0),
+            )
 
         raw_transcript = (response.text or "").strip()
+        if not raw_transcript:
+            raise NoSpeechDetectedError("No speech was detected in the recording.")
         logger.info(f"Speech transcription succeeded ({len(raw_transcript)} chars).")
 
     finally:

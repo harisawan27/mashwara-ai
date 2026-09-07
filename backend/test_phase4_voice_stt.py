@@ -31,6 +31,7 @@ from tools.storage import (
     ALLOWED_AUDIO_MIMES,
 )
 from agents.transcription import (
+    NoSpeechDetectedError,
     build_transcription_prompt,
     has_significant_urdu_script,
     transliterate_urdu_to_roman_urdu,
@@ -215,7 +216,7 @@ class TestPhase4VoiceSTT(unittest.TestCase):
 
         res = transcribe_voice_note(
             storage_key="audio-temp/guest/g1/a1/recording.webm",
-            content_type="audio/webm",
+            content_type="audio/webm;codecs=opus",
             language="roman-ur"
         )
 
@@ -226,14 +227,77 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         mock_genai.files.delete.assert_called_once_with(name="files/temp-audio-resource-123")
         # 2. GCS temporary audio deletion verified
         mock_gcs.delete_object.assert_called_once_with("audio-temp/guest/g1/a1/recording.webm")
+        _, upload_kwargs = mock_genai.files.upload.call_args
+        self.assertEqual(upload_kwargs["config"].mime_type, "audio/webm")
+        mock_genai.models.generate_content.assert_called_once_with(
+            model="gemini-3.5-transcribe",
+            contents=[mock_file_ref],
+        )
+
+    @patch("agents.transcription.GCSStorageClient")
+    @patch("agents.transcription.genai.Client")
+    def test_transcription_falls_back_to_general_audio_model(
+        self, mock_genai_client_class, mock_gcs_client_class
+    ):
+        mock_gcs = MagicMock()
+        mock_gcs_client_class.return_value = mock_gcs
+        mock_gcs.verify_uploaded_object.return_value = (True, 5000, None)
+        mock_gcs.download_bytes.return_value = b"fake-audio-bytes"
+
+        mock_genai = MagicMock()
+        mock_genai_client_class.return_value = mock_genai
+        mock_file_ref = MagicMock()
+        mock_file_ref.name = "files/fallback-audio"
+        mock_genai.files.upload.return_value = mock_file_ref
+        fallback_response = MagicMock(text="Fallback transcript works.")
+        mock_genai.models.generate_content.side_effect = [
+            RuntimeError("dedicated model rejected request"),
+            fallback_response,
+        ]
+
+        result = transcribe_voice_note(
+            storage_key="audio-temp/guest/g1/a2/recording.webm",
+            content_type="audio/webm;codecs=opus",
+            language="en",
+        )
+
+        self.assertEqual(result["transcript"], "Fallback transcript works.")
+        self.assertEqual(mock_genai.models.generate_content.call_count, 2)
+        _, fallback_kwargs = mock_genai.models.generate_content.call_args_list[1]
+        self.assertEqual(fallback_kwargs["model"], "gemini-3.5-flash-lite")
+
+    @patch("agents.transcription.GCSStorageClient")
+    @patch("agents.transcription.genai.Client")
+    def test_empty_transcript_is_reported_as_no_speech(
+        self, mock_genai_client_class, mock_gcs_client_class
+    ):
+        mock_gcs = MagicMock()
+        mock_gcs_client_class.return_value = mock_gcs
+        mock_gcs.verify_uploaded_object.return_value = (True, 5000, None)
+        mock_gcs.download_bytes.return_value = b"silent-audio"
+
+        mock_genai = MagicMock()
+        mock_genai_client_class.return_value = mock_genai
+        mock_file_ref = MagicMock(name="files/silent-audio")
+        mock_file_ref.name = "files/silent-audio"
+        mock_genai.files.upload.return_value = mock_file_ref
+        mock_genai.models.generate_content.return_value = MagicMock(text="")
+
+        with self.assertRaises(NoSpeechDetectedError):
+            transcribe_voice_note(
+                storage_key="audio-temp/guest/g1/a3/recording.webm",
+                content_type="audio/webm",
+                language="en",
+            )
+
+        mock_gcs.delete_object.assert_called_once_with(
+            "audio-temp/guest/g1/a3/recording.webm"
+        )
 
     # ---------------------------------------------------------------------------
     # 5. FastAPI Endpoint Handlers (/audio/presign, /audio/{audio_id}/transcribe, DELETE)
     # ---------------------------------------------------------------------------
-    @patch("main.generate_v4_upload_signed_url")
-    def test_presign_audio_endpoint_guest(self, mock_generate_url):
-        mock_generate_url.return_value = "https://storage.googleapis.com/signed-put-url"
-
+    def test_presign_audio_endpoint_guest(self):
         req = self.make_mock_request({
             "x-guest-scope-id": "guest_test_scope",
             "x-guest-scope-secret": "secret_123"
@@ -246,15 +310,12 @@ class TestPhase4VoiceSTT(unittest.TestCase):
         )
 
         res = asyncio.run(presign_audio(request=req, body=body, current_user=None))
-        self.assertEqual(res.upload_url, "https://storage.googleapis.com/signed-put-url")
+        self.assertEqual(res.upload_url, f"/audio/{res.audio_id}/upload")
         self.assertTrue(res.audio_id)
         self.assertTrue(res.gcs_key.startswith("audio-temp/guest/guest_test_scope/"))
         self.assertEqual(res.expires_in_seconds, 300)
 
-    @patch("main.generate_v4_upload_signed_url")
-    def test_presign_audio_endpoint_authenticated(self, mock_generate_url):
-        mock_generate_url.return_value = "https://storage.googleapis.com/signed-put-url"
-
+    def test_presign_audio_endpoint_authenticated(self):
         req = self.make_mock_request()
         mock_user = MagicMock()
         mock_user.id = "user_456"
@@ -336,10 +397,7 @@ class TestPhase4VoiceSTT(unittest.TestCase):
             expires_minutes=10,
         )
 
-    @patch("main.generate_v4_upload_signed_url")
-    def test_presign_audio_endpoint_storage_error_sanitized(self, mock_generate_url):
-        mock_generate_url.side_effect = RuntimeError("GCS credentials signing failed: internal socket error")
-
+    def test_presign_audio_endpoint_uses_api_upload_route(self):
         req = self.make_mock_request({"x-guest-scope-id": "guest_err_test"})
         body = AudioPresignRequest(
             content_type="audio/webm",

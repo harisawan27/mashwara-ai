@@ -85,6 +85,7 @@ from agents.tts import (
     TTS_VOICE,
 )
 from agents.transcription import (
+    NoSpeechDetectedError,
     transcribe_voice_note,
 )
 from agents.evidence_extractor import (
@@ -1199,17 +1200,9 @@ async def presign_audio(
         guest_scope_id=guest_scope_id,
     )
 
-    try:
-        upload_url = generate_v4_upload_signed_url(
-            object_name=gcs_key,
-            content_type=body.content_type,
-            expires_minutes=5,
-        )
-    except Exception as e:
-        # Cloud Run may have storage access without IAM signBlob permission.
-        # Keep voice notes working through the authenticated API upload route.
-        logger.warning(f"Signed audio upload unavailable; using API upload fallback: {e}")
-        upload_url = f"/audio/{audio_id}/upload"
+    # Voice audio uses the authenticated API route. This avoids browser-to-GCS
+    # signing/CORS dependencies while preserving user and guest scope isolation.
+    upload_url = f"/audio/{audio_id}/upload"
 
     return AudioPresignResponse(
         upload_url=upload_url,
@@ -1309,6 +1302,8 @@ async def transcribe_audio_endpoint(
             transcript=result.get("transcript", ""),
             transliterated=result.get("transliterated", False),
         )
+    except NoSpeechDetectedError:
+        raise HTTPException(status_code=422, detail="No speech was detected in the recording.")
     except HTTPException:
         raise
     except Exception as e:
@@ -1318,7 +1313,7 @@ async def transcribe_audio_endpoint(
             delete_blob(gcs_key)
         except Exception:
             pass
-        raise HTTPException(status_code=500, detail=f"Speech transcription failed: {str(e)}")
+        raise HTTPException(status_code=502, detail="Speech transcription is temporarily unavailable.")
 
 
 @app.delete("/audio/{audio_id}", tags=["Audio"])

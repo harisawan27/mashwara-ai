@@ -328,6 +328,7 @@ export function useVoiceRecorder({
 
       setState("transcribing");
       setTranscriptionStage("uploading");
+      let failedStage: "uploading" | "transcribing" = "uploading";
       try {
         // 1. Presign upload URL
         const presignRes = await presignAudioUpload({
@@ -343,6 +344,7 @@ export function useVoiceRecorder({
         await uploadAudioBlobToGCS(presignRes.upload_url, rawBlob, mime);
 
         // 3. Request speech-to-text
+        failedStage = "transcribing";
         setTranscriptionStage("transcribing");
         const transcribeRes = await transcribeAudioNote(presignRes.audio_id, {
           gcs_key: presignRes.gcs_key,
@@ -360,8 +362,14 @@ export function useVoiceRecorder({
         }
       } catch (err: unknown) {
         console.error("Voice recording / transcription failed:", err);
-        // Clean user-friendly message without leaking GCS, signed URLs, HTTP 500, or Gemini internals
-        const friendlyError = "Voice upload couldn't start";
+        const responseStatus = (
+          err as { response?: { status?: number } }
+        )?.response?.status;
+        const friendlyError = responseStatus === 422
+          ? "No speech was detected. Please record again and speak clearly."
+          : failedStage === "transcribing"
+            ? "Could not transcribe your voice note. Please try again."
+            : "Voice upload couldn't start";
         setErrorMessage(friendlyError);
         setTranscriptionStage(null);
         setState("error");
