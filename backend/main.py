@@ -24,7 +24,7 @@ load_dotenv()
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 try:
     import email_validator
     from pydantic import EmailStr
@@ -236,10 +236,12 @@ class CompleteAttachmentResponse(BaseModel):
     content_type: str
 
 class AttachmentItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
-    context_id: str
-    filename: str
-    content_type: str
+    context_id: str = Field(validation_alias=AliasChoices("context_id", "attachment_context_id"))
+    filename: str = Field(validation_alias=AliasChoices("filename", "display_filename"))
+    content_type: str = Field(validation_alias=AliasChoices("content_type", "mime_type"))
     size_bytes: int
     status: str
     created_at: datetime.datetime
