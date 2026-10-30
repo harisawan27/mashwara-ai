@@ -1,8 +1,7 @@
 name: Sync to Hugging Face Hub
 
 on:
-  push:
-    branches: [main]
+  # Cloud Run is the active backend. Keep Hugging Face available for manual runs.
   workflow_dispatch:
 
 # These permissions are required for OpenID Connect (OIDC) authentication
