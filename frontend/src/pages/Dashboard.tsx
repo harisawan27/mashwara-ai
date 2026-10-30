@@ -30,6 +30,7 @@ import { useAuthStore } from "../store/authStore";
 import { useSessionStore, deriveSessionTitle } from "../store/sessionStore";
 import { TEMPLATES } from "../types/meeting";
 import { useTranslation } from "../i18n";
+import UiIcon from "../components/UiIcon";
 
 interface Message {
   id: string;
@@ -144,13 +145,11 @@ export default function Dashboard() {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const getFileIcon = (filename: string, mime?: string): string => {
+  const getFileIcon = (filename: string, mime?: string): React.ReactNode => {
     const lower = (filename || "").toLowerCase();
-    if (lower.endsWith(".pdf") || (mime && mime.includes("pdf"))) return "📄";
-    if (lower.endsWith(".docx") || lower.endsWith(".doc")) return "📝";
-    if (lower.endsWith(".xlsx") || lower.endsWith(".csv")) return "📊";
-    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || (mime && mime.startsWith("image/"))) return "🖼️";
-    return "📃";
+    if (lower.endsWith(".xlsx") || lower.endsWith(".csv")) return <UiIcon name="spreadsheet" />;
+    if (lower.endsWith(".png") || lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".webp") || (mime && mime.startsWith("image/"))) return <UiIcon name="image" />;
+    return <UiIcon name="document" />;
   };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1006,7 +1005,7 @@ export default function Dashboard() {
                               return (
                                 <div className="flex flex-wrap items-center gap-1.5 mt-2.5 pt-2.5 border-t border-slate-200/70 dark:border-slate-800 not-prose">
                                   <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 flex items-center gap-1">
-                                    <span>🌐</span> {t.webSearch?.sourcesTitle || "Sources"}:
+                                    <UiIcon name="globe" /> {t.webSearch?.sourcesTitle || "Sources"}:
                                   </span>
                                   {sources.map((s: any) => (
                                     <a
@@ -1139,7 +1138,7 @@ export default function Dashboard() {
                               {previewUrl ? (
                                 <img src={previewUrl} alt={file.filename} className="w-full h-full object-cover" />
                               ) : (
-                                <div className="w-full h-full flex items-center justify-center text-xl">🖼️</div>
+                                <div className="w-full h-full flex items-center justify-center"><UiIcon name="image" className="w-6 h-6" /></div>
                               )}
                               {/* Status overlay */}
                               {(file.status === "uploading" || file.status === "processing") && (
@@ -1151,7 +1150,7 @@ export default function Dashboard() {
                               )}
                               {file.status === "error" && (
                                 <div className="absolute inset-0 bg-red-900/50 flex items-center justify-center">
-                                  <span className="text-white text-sm">⚠️</span>
+                                  <UiIcon name="alert" className="w-4 h-4 text-white" />
                                 </div>
                               )}
                               {/* Remove × */}
@@ -1161,7 +1160,7 @@ export default function Dashboard() {
                                 aria-label={`Remove ${file.filename}`}
                                 className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white text-[10px] transition-colors"
                               >
-                                ✕
+                                <UiIcon name="close" className="w-3 h-3" />
                               </button>
                             </div>
                           );
@@ -1196,9 +1195,9 @@ export default function Dashboard() {
                                 {t.attachments?.processing || "Processing…"}
                               </span>
                             ) : file.status === "ready" ? (
-                              <span className="text-emerald-500 text-xs font-bold flex-shrink-0" title={t.attachments?.ready || "Ready"}>✓</span>
+                              <span title={t.attachments?.ready || "Ready"}><UiIcon name="check" className="w-3.5 h-3.5 text-emerald-500" /></span>
                             ) : (
-                              <span className="text-red-500 text-xs font-bold flex-shrink-0" title={file.error || t.attachments?.error || "Error"}>⚠️</span>
+                              <span title={file.error || t.attachments?.error || "Error"}><UiIcon name="alert" className="w-3.5 h-3.5 text-red-500" /></span>
                             )}
                             <button
                               type="button"
@@ -1206,7 +1205,7 @@ export default function Dashboard() {
                               aria-label={`Remove ${file.filename}`}
                               className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors text-xs"
                             >
-                              ✕
+                              <UiIcon name="close" className="w-3.5 h-3.5" />
                             </button>
                           </div>
                         ))}
@@ -1220,9 +1219,9 @@ export default function Dashboard() {
 
               {uploadError && (
                 <div className="px-4 pt-2 text-xs text-red-500 font-medium flex items-center gap-1">
-                  <span>⚠️</span>
+                  <UiIcon name="alert" />
                   <span>{uploadError}</span>
-                  <button type="button" onClick={() => setUploadError(null)} className="ml-auto text-slate-400 hover:text-slate-600 text-xs">✕</button>
+                  <button type="button" onClick={() => setUploadError(null)} aria-label={t.common.close} className="ml-auto text-slate-400 hover:text-slate-600 text-xs"><UiIcon name="close" className="w-3.5 h-3.5" /></button>
                 </div>
               )}
 

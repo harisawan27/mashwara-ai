@@ -13,6 +13,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import AgentStream from "./AgentStream";
 import SummaryAudioPlayer from "./SummaryAudioPlayer";
+import UiIcon from "./UiIcon";
 import { useTranslation } from "../i18n";
 import { isVisibleExpert } from "../utils/roleVisibility";
 import type { RoleInfo, SharedMashwaraExpert } from "../api/client";
@@ -473,7 +474,7 @@ export default function MashwaraResultView({
                     key={idx}
                     className="inline-flex max-w-full min-w-0 items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg bg-white/70 dark:bg-white/[0.06] border border-slate-200 dark:border-white/10 text-xs font-medium text-slate-700 dark:text-slate-200 shadow-sm"
                   >
-                    <span className="text-xs">📄</span>
+                    <UiIcon name="document" className="w-3.5 h-3.5" />
                     <span className="min-w-0 max-w-[140px] sm:max-w-[200px] truncate">{src.filename}</span>
                     {src.size_bytes && (
                       <span className="shrink-0 text-[10px] text-slate-400">
@@ -625,7 +626,7 @@ export default function MashwaraResultView({
           <div className="rounded-xl border border-slate-200 dark:border-white/[0.06] bg-slate-50 dark:bg-white/[0.02] p-4 sm:p-5 space-y-2.5">
             <div className="flex flex-col items-start gap-1.5 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0 flex items-center gap-2">
-                <span className="text-sm">🌐</span>
+                <UiIcon name="globe" />
                 <p className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-widest font-bold">
                   {t.webSearch?.sourcesTitle || (currentLanguage === "ur" ? "تحقیقی ذرائع" : "Web Sources")}
                 </p>
@@ -1135,7 +1136,7 @@ export default function MashwaraResultView({
           <div data-pdf-section="report-web-sources" className="rounded-2xl bg-slate-50 border border-slate-200 p-4 space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-sm">🌐</span>
+                <UiIcon name="globe" />
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">
                   {t.webSearch?.sourcesTitle || (isUrdu ? "تحقیقی ذرائع" : "Web Sources")}
                 </p>

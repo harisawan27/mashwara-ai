@@ -5,9 +5,9 @@
  * - Desktop and mobile: a compact anchored popover above the button
  *
  * Surfaces:
- *  📄 Documents — triggers docInputRef
- *  🖼️ Images    — triggers imgInputRef
- *  🌐 Web Research — inline Auto / On / Off sub-picker
+ *  Documents — triggers docInputRef
+ *  Images — triggers imgInputRef
+ *  Web Research — inline Auto / On / Off sub-picker
  *
  * Keyboard:
  *  Escape closes, focus returns to + button.
@@ -17,6 +17,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "../i18n";
 import Popover from "./Popover";
+import UiIcon, { type UiIconName } from "./UiIcon";
 
 interface ComposerPlusMenuProps {
   docInputRef: React.RefObject<HTMLInputElement | null>;
@@ -74,7 +75,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
     onClick,
     active,
   }: {
-    icon: string;
+    icon: UiIconName;
     label: string;
     onClick?: () => void;
     active?: boolean;
@@ -89,9 +90,9 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
             : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
         }`}
       >
-        <span className="text-sm w-5 text-center flex-shrink-0">{icon}</span>
+        <UiIcon name={icon} className="w-5 h-5" />
         <span className="flex-1 min-w-0 break-words">{label}</span>
-        {active && <span className="text-blue-500 text-xs font-bold">✓</span>}
+        {active && <UiIcon name="check" className="w-3.5 h-3.5 text-blue-500" />}
       </button>
     </div>
   );
@@ -122,7 +123,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
               ? t.webSearch?.modeOn || "On"
               : t.webSearch?.modeOff || "Off"}
           </span>
-          {webSearchMode === mode && <span className="flex-shrink-0 text-blue-500 text-xs font-bold">✓</span>}
+          {webSearchMode === mode && <UiIcon name="check" className="w-3.5 h-3.5 text-blue-500" />}
         </button>
       ))}
     </div>
@@ -143,7 +144,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
             onClick={() => setWebSubOpen(false)}
             className="w-full min-h-11 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
           >
-            <span className="text-slate-400 rtl:rotate-180">‹</span>
+            <UiIcon name="chevronLeft" className="w-4 h-4 text-slate-400 rtl:rotate-180" />
             <span className="truncate">Web Research</span>
           </button>
           <div className="h-px bg-slate-100 dark:bg-white/[0.06] mx-2" />
@@ -151,8 +152,8 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         </>
       ) : (
         <>
-          <MenuRow icon="📄" label={t.attachments?.attachFiles || "Documents"} onClick={handleDocClick} />
-          <MenuRow icon="🖼️" label={t.attachments?.attachImages || "Images"} onClick={handleImgClick} />
+          <MenuRow icon="document" label={t.attachments?.attachFiles || "Documents"} onClick={handleDocClick} />
+          <MenuRow icon="image" label={t.attachments?.attachImages || "Images"} onClick={handleImgClick} />
           <div className="h-px bg-slate-100 dark:bg-white/[0.06] mx-2" />
           <button
             type="button"
@@ -163,9 +164,9 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
                 : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
             }`}
           >
-            <span className="text-sm w-5 text-center flex-shrink-0">🌐</span>
+            <UiIcon name="globe" className="w-5 h-5" />
             <span className="flex-1 min-w-0 truncate">Web Research</span>
-            <span className="flex-shrink-0 text-xs text-slate-400 rtl:rotate-180">›</span>
+            <UiIcon name="chevronRight" className="w-3.5 h-3.5 text-slate-400 rtl:rotate-180" />
           </button>
         </>
       )}

@@ -9,6 +9,7 @@ import ConfirmModal from "./ConfirmModal";
 import { LocalizedBrand } from "./LocalizedBrand";
 import { useDialog } from "../hooks/useDialog";
 import Popover from "./Popover";
+import UiIcon from "./UiIcon";
 
 interface SessionInfo {
   id: string;
@@ -217,7 +218,11 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
         ) : (
           <div className="space-y-1">
             {sessions.map((s) => (
-              <div key={s.id} className="group relative isolate flex items-center">
+              <div key={s.id} className={`group relative isolate flex items-start rounded-xl border transition-colors ${
+                selectedSessionId === s.id
+                  ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/20"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white border-transparent"
+              }`}>
                 <button
                   onClick={() => {
                     if (editingId !== s.id) {
@@ -225,13 +230,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                       if (window.innerWidth < 1024 && onClose) onClose();
                     }
                   }}
-                  className={`min-w-0 w-full text-start px-3 py-2.5 rounded-xl text-sm transition-all flex items-center gap-3 ${
-                    isRTL ? "pl-16 pr-3" : "pr-16 pl-3"
-                  } ${
-                    selectedSessionId === s.id
-                      ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border border-blue-500/20"
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-white/5 hover:text-slate-900 dark:hover:text-white border border-transparent"
-                  }`}
+                  className="min-w-0 flex-1 text-start ps-3 pe-1 py-2.5 rounded-xl text-sm flex items-center"
                 >
                   <div className="truncate flex-1">
                     {editingId === s.id ? (
@@ -255,13 +254,13 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                     )}
                   </div>
                 </button>
-                <div className={`absolute ${isRTL ? "left-2" : "right-2"} flex items-center`}>
+                <div className="shrink-0 flex items-center pt-0.5 lg:pt-1">
                   <button 
                     onClick={(e) => { e.stopPropagation(); historyButtonRef.current = e.currentTarget; setOpenDropdownId(openDropdownId === s.id ? null : s.id); }}
                     aria-label={s.title}
                     aria-haspopup="true"
                     aria-expanded={openDropdownId === s.id}
-                    className="ui-icon-button p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                    className="inline-flex items-center justify-center shrink-0 w-11 h-11 lg:w-8 lg:h-8 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 16a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0-6a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0-6a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>
                   </button>
@@ -340,7 +339,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
               aria-expanded={isLangMenuOpen}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-200/60 dark:bg-white/5 hover:bg-slate-200 dark:hover:bg-white/10 text-xs text-slate-800 dark:text-slate-200 border border-slate-300/50 dark:border-white/10 transition-all cursor-pointer"
             >
-              <span>🌐</span>
+              <UiIcon name="languages" className="w-3.5 h-3.5" />
               <span className="font-semibold text-[11px]">
                 {language === "ur" ? "اردو" : language === "roman-ur" ? "Roman Urdu" : "English"}
               </span>
@@ -363,7 +362,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                   }`}
                 >
                   <span className="font-urdu text-sm">اردو</span>
-                  {language === "ur" && <span className="text-xs">✓</span>}
+                  {language === "ur" && <UiIcon name="check" className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   onClick={() => {
@@ -375,7 +374,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                   }`}
                 >
                   <span>Roman Urdu</span>
-                  {language === "roman-ur" && <span className="text-xs">✓</span>}
+                  {language === "roman-ur" && <UiIcon name="check" className="w-3.5 h-3.5" />}
                 </button>
                 <button
                   onClick={() => {
@@ -387,7 +386,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                   }`}
                 >
                   <span>English</span>
-                  {language === "en" && <span className="text-xs">✓</span>}
+                  {language === "en" && <UiIcon name="check" className="w-3.5 h-3.5" />}
                 </button>
               </Popover>
             </>
