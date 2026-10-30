@@ -350,11 +350,13 @@ export default function Dashboard() {
   }, [token, messages, input, selectedTemplate]);
 
   useEffect(() => {
+    let active = true;
     if (token) {
       // Prefetch profile info silently to keep UI fresh
+      const initialUser = useAuthStore.getState().user;
       getMe()
         .then((data) => {
-          setUser(data);
+          if (active && useAuthStore.getState().token === token && useAuthStore.getState().user === initialUser) setUser(data);
         })
         .catch((err) => {
           console.error("Failed to prefetch profile info", err);
@@ -362,6 +364,7 @@ export default function Dashboard() {
       // Fetch latest sessions silently
       fetchSessions();
     }
+    return () => { active = false; };
   }, [token, setUser, fetchSessions]);
 
   useEffect(() => {

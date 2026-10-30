@@ -75,6 +75,27 @@ export interface TranslationSchema {
     deleteChatDesc: string;
   };
   settings: {
+    preferences: string;
+    preferencesDesc: string;
+    appearance: string;
+    appearanceDesc: string;
+    themeLight: string;
+    themeDark: string;
+    themeSystem: string;
+    englishDesc: string;
+    urduDesc: string;
+    romanUrduDesc: string;
+    profileHint: string;
+    emailLabel: string;
+    emailHint: string;
+    contextHint: string;
+    savedState: string;
+    unsavedState: string;
+    savingState: string;
+    loadingProfile: string;
+    loadFailed: string;
+    retry: string;
+    accountDesc: string;
     backToDashboard: string;
     pageTitle: string;
     pageDescription: string;
