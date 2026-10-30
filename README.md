@@ -25,6 +25,30 @@
   <img alt="Vercel" src="https://img.shields.io/badge/Frontend-Vercel-000000?style=flat-square&logo=vercel&logoColor=white" />
 </p>
 
+> **Track Winner — Alibaba Cloud AI Hackathon Pakistan 2026**<br />
+> Urdu & Regional Language Tech · **Team DuoLogic**<br />
+> **US$2,000 prize + US$1,000 in Alibaba Cloud credits** · [See the award and organizer coverage](#hackathon-recognition)
+
+## Hackathon recognition
+
+Mashwara AI, developed by **Team DuoLogic**, won the **Urdu & Regional Language Tech** track at the **Alibaba Cloud AI Hackathon Pakistan 2026** national final in **Islamabad on 24 October 2026**.
+
+| Recognition | Details |
+|---|---|
+| Award | Track Winner — Urdu & Regional Language Tech |
+| Team | DuoLogic |
+| Cash prize | US$2,000 |
+| Cloud credits | US$1,000 in Alibaba Cloud credits |
+| National final | 24 October 2026 · Islamabad, Pakistan |
+
+The hackathon was organized by **Bano Qabil, Alkhidmat Foundation Pakistan, Cognix, and Alibaba Cloud**. The organizers describe it as **Pakistan's largest AI hackathon**, as shown in their official grand-finale coverage below.
+
+![Team DuoLogic receiving the Urdu and Regional Language Tech track award at the Alibaba Cloud AI Hackathon Pakistan 2026 national final in Islamabad](docs/media/duologic-hackathon-award-2026.jpg)
+
+**Organizer video:** [Watch “From Karachi to Islamabad — A Journey of Excellence!”](docs/media/duologic-organizer-recap-2026.mp4)
+
+*Photo and video: official organizer posts supplied by Team DuoLogic.*
+
 ## Why Mashwara exists
 
 Important decisions rarely belong to one discipline. A career move may involve finances, family obligations, market timing, risk tolerance, and long-term growth at the same time. Yet diverse professional advice is often expensive, fragmented, or simply unavailable.
@@ -336,15 +360,15 @@ The current production path is intentionally small:
 
 The root `Dockerfile` builds the Python 3.11 API for Cloud Run. The frontend includes Vercel SPA rewrites and an auto-updating PWA configuration.
 
-## Built for Alibaba Cloud AI Hackathon Pakistan 2026
+## From hackathon to public launch
 
-Prepared as a solo submission through Bano Qabil, Mashwara began as an agentic AI planning and advisory platform focused on local languages and accessible guidance for people who may not have affordable access to professional or peer advice.
+Built by Team DuoLogic for the Alibaba Cloud AI Hackathon Pakistan 2026, Mashwara began as an agentic AI planning and advisory platform focused on local languages and accessible guidance for people who may not have affordable access to professional or peer advice.
 
 The current build deepens that same scope through contextual expert routing, private document evidence, current web research, browser-native voice input, multi-round deliberation, and transparent decision reports. Each addition serves the original goal: help people reason through consequential choices with more perspectives and clearer next steps.
 
-## Built solo
+## Team DuoLogic
 
-Mashwara AI was designed and engineered end-to-end as a solo submission—from product UX and multilingual interaction to agent orchestration, evidence pipelines, realtime streaming, authentication, and deployment.
+Mashwara AI is a **team project by DuoLogic**, led by **[@harisawan27](https://github.com/harisawan27)** as team lead. The team's work spans product UX, multilingual interaction, agent orchestration, evidence pipelines, realtime streaming, authentication, and deployment.
 
 ## Roadmap
 
