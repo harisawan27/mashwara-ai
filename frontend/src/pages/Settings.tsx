@@ -89,18 +89,18 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen relative bg-slate-50 dark:bg-[#06080f] text-slate-900 dark:text-white transition-colors">
+    <div className="min-h-[var(--app-height)] min-w-0 relative bg-slate-50 dark:bg-[#06080f] text-slate-900 dark:text-white transition-colors">
       {/* Global Background */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full bg-[radial-gradient(ellipse,rgba(99,102,241,0.08)_0%,transparent_70%)] dark:bg-[radial-gradient(ellipse,rgba(99,102,241,0.05)_0%,transparent_70%)]" />
         <div className="absolute inset-0 dot-pattern opacity-60 dark:opacity-30" />
       </div>
 
-      <div className="relative z-10 min-w-0 max-w-3xl mx-auto p-4 min-[360px]:p-5 sm:p-10 pt-16 sm:pt-20">
+      <div className="relative z-10 min-w-0 max-w-3xl mx-auto p-4 min-[360px]:p-5 sm:p-10 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
         
         <button 
           onClick={() => navigate("/")}
-          className="mb-8 flex items-center gap-2 text-sm text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
+          className="min-h-11 mb-6 sm:mb-8 flex items-center gap-2 text-sm text-start text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white transition-colors"
         >
           <svg className={`w-4 h-4 ${isRTL ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
@@ -122,7 +122,7 @@ export default function Settings() {
             <p className="text-sm text-slate-500 mt-1">{t.settings.languageSectionDesc}</p>
           </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-3 gap-3">
             {/* 1. اردو (Urdu) */}
             <button
               type="button"
@@ -223,10 +223,11 @@ export default function Settings() {
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.fullName}</label>
+                    <label htmlFor="profile-name" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.fullName}</label>
                     <input
                       type="text"
                       name="name"
+                      id="profile-name"
                       value={formData.name}
                       onChange={handleChange}
                       className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none"
@@ -235,10 +236,11 @@ export default function Settings() {
                   </div>
                   
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.role}</label>
+                    <label htmlFor="profile-role" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.role}</label>
                     <input
                       type="text"
                       name="role"
+                      id="profile-role"
                       value={formData.role}
                       onChange={handleChange}
                       className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none"
@@ -249,10 +251,11 @@ export default function Settings() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.company}</label>
+                    <label htmlFor="profile-company" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.company}</label>
                     <input
                       type="text"
                       name="company"
+                      id="profile-company"
                       value={formData.company}
                       onChange={handleChange}
                       className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none"
@@ -261,10 +264,11 @@ export default function Settings() {
                   </div>
                   
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.industry}</label>
+                    <label htmlFor="profile-industry" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.industry}</label>
                     <input
                       type="text"
                       name="industry"
+                      id="profile-industry"
                       value={formData.industry}
                       onChange={handleChange}
                       className="w-full bg-white dark:bg-slate-900/50 border border-slate-200 dark:border-white/10 rounded-xl px-4 py-3 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-600 focus:ring-2 focus:ring-blue-500/50 focus:border-transparent transition-all shadow-sm dark:shadow-none"
@@ -274,9 +278,10 @@ export default function Settings() {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.bio}</label>
+                  <label htmlFor="profile-bio" className="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1.5 uppercase tracking-wider">{t.settings.bio}</label>
                   <textarea
                     name="bio"
+                    id="profile-bio"
                     value={formData.bio}
                     onChange={handleChange}
                     rows={4}
@@ -317,7 +322,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={() => setLogoutModalOpen(true)}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors font-medium text-sm text-center cursor-pointer"
+                  className="w-full sm:w-auto sm:shrink-0 min-h-11 px-6 py-2.5 rounded-xl border border-slate-200 dark:border-white/10 hover:bg-slate-100 dark:hover:bg-white/5 transition-colors font-medium text-sm text-center cursor-pointer"
                   >
                     {t.settings.signOut}
                   </button>
@@ -335,7 +340,7 @@ export default function Settings() {
                   <button
                     type="button"
                     onClick={() => setDeleteModalOpen(true)}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors font-medium text-sm text-center shadow-lg shadow-red-500/25 cursor-pointer"
+                    className="w-full sm:w-auto sm:shrink-0 min-h-11 px-6 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white transition-colors font-medium text-sm text-center shadow-lg shadow-red-500/25 cursor-pointer"
                   >
                     {t.settings.deleteAccount}
                   </button>

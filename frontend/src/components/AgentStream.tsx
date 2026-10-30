@@ -86,6 +86,7 @@ export default function AgentStream({
       <button
         type="button"
         onClick={() => setIsExpanded(v => !v)}
+        aria-expanded={isExpanded}
         className="w-full min-w-0 flex items-start gap-2 sm:gap-3 px-3 sm:px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/[0.02] transition-colors text-start cursor-pointer"
       >
         {/* Avatar */}
@@ -108,7 +109,7 @@ export default function AgentStream({
           {vs && (
             <div className="pt-0.5 flex items-center gap-1.5 flex-wrap">
               <span
-                className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 flex-shrink-0 whitespace-nowrap ${vs.pill}`}
+                className={`max-w-full inline-flex flex-wrap items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded ring-1 ${vs.pill}`}
                 aria-label={`${vs.label}${currentConf !== undefined ? ` · ${currentConf}%` : ""}`}
                 title={`${vs.label}${currentConf !== undefined ? ` · ${currentConf}%` : ""}`}
               >
@@ -174,7 +175,8 @@ export default function AgentStream({
                 <button
                   type="button"
                   onClick={() => setIsThinkingOpen(v => !v)}
-                  className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors group cursor-pointer"
+                  aria-expanded={isThinkingOpen}
+                  className="min-h-11 max-w-full flex items-center gap-1.5 text-xs text-start font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 transition-colors group cursor-pointer"
                 >
                   <svg className={`w-3 h-3 transition-transform ${isThinkingOpen ? "rotate-90" : "rtl:rotate-180"}`}
                     fill="none" viewBox="0 0 24 24" stroke="currentColor">

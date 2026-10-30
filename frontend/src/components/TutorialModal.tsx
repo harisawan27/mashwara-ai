@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useId } from "react";
+import { createPortal } from "react-dom";
+import { useDialog } from "../hooks/useDialog";
 import { useTranslation } from "../i18n";
 import { SLIDE_VISUALS, SLIDE_VISUALS_BY_ID } from "./tutorial/TutorialVisuals";
 
@@ -10,6 +12,8 @@ interface TutorialModalProps {
 export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const { t, language, isRTL } = useTranslation();
+  const dialogRef = useDialog(isOpen, onClose);
+  const titleId = useId();
 
   // Reset to first slide whenever the modal is opened
   useEffect(() => {
@@ -41,9 +45,8 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "ArrowRight") {
+      if (e.defaultPrevented) return;
+      if (e.key === "ArrowRight") {
         if (isRTL) handlePrev();
         else handleNext();
       } else if (e.key === "ArrowLeft") {
@@ -64,9 +67,9 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
     SLIDE_VISUALS[0];
   const isLastSlide = currentSlide === totalSlides - 1;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6"
+      className="ui-dialog-overlay fixed inset-0 z-[70] flex items-center justify-center p-3 sm:p-4 md:p-6"
       dir={isRTL ? "rtl" : "ltr"}
     >
       {/* Backdrop */}
@@ -78,9 +81,11 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
       {/* Modal Dialog */}
       <div
         role="dialog"
+        ref={dialogRef}
+        tabIndex={-1}
+        aria-labelledby={titleId}
         aria-modal="true"
-        aria-labelledby="tutorial-headline"
-        className="relative w-full max-w-2xl bg-white dark:bg-[#0c1020] border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92dvh] animate-scale-in"
+        className="ui-dialog-panel relative w-full max-w-2xl bg-white dark:bg-[#0c1020] border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col animate-scale-in"
       >
         {/* Top Bar: Progress Pills & Close */}
         <div className="p-3.5 sm:p-4 border-b border-slate-100 dark:border-white/5 flex items-center justify-between gap-3 flex-shrink-0 bg-slate-50/70 dark:bg-slate-900/40">
@@ -135,7 +140,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
               type="button"
               onClick={onClose}
               aria-label="Close guide"
-              className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-200/50 dark:hover:bg-white/5 transition-colors"
+              className="ui-icon-button p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-lg hover:bg-slate-200/50 dark:hover:bg-white/5 transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -145,7 +150,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-4">
+        <div className="ui-scroll-region flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 space-y-4">
           {/* Miniature Live Product Representation */}
           <div className="w-full rounded-2xl bg-slate-50/80 dark:bg-[#11162b] border border-slate-200/80 dark:border-white/10 p-3 sm:p-4 shadow-inner flex items-center justify-center min-h-[190px] sm:min-h-[210px]">
             {VisualComponent && <VisualComponent language={language} isRTL={isRTL} />}
@@ -158,7 +163,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
                 {slide.tag || `Step ${currentSlide + 1}`}
               </span>
               <h3
-                id="tutorial-headline"
+                id={titleId}
                 className="text-lg sm:text-xl font-extrabold text-slate-900 dark:text-white tracking-tight leading-snug"
               >
                 {slide.headline || slide.title}
@@ -187,13 +192,13 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
         </div>
 
         {/* Footer Navigation Bar */}
-        <div className="p-3 sm:p-4 bg-slate-50/80 dark:bg-slate-900/60 border-t border-slate-100 dark:border-white/5 grid grid-cols-[auto_1fr_auto] items-center gap-2 sm:gap-3 flex-shrink-0">
+        <div className="p-3 sm:p-4 bg-slate-50/80 dark:bg-slate-900/60 border-t border-slate-100 dark:border-white/5 grid grid-cols-2 sm:grid-cols-[auto_1fr_auto] items-center gap-2 sm:gap-3 flex-shrink-0">
           {/* Back Button */}
           <button
             type="button"
             onClick={handlePrev}
             disabled={currentSlide === 0}
-            className={`flex items-center gap-1 px-2.5 sm:px-3.5 py-2 text-[11px] sm:text-xs font-semibold whitespace-nowrap rounded-xl transition-all ${
+            className={`col-start-1 row-start-1 min-h-11 flex items-center justify-center gap-1 px-2.5 sm:px-3.5 py-2 text-xs font-semibold rounded-xl transition-all ${
               currentSlide === 0
                 ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
                 : "text-slate-700 dark:text-slate-200 hover:bg-slate-200/70 dark:hover:bg-white/10"
@@ -204,7 +209,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
           </button>
 
           {/* Mobile Progress Dots (Compact 13-dot track) */}
-          <div className="min-w-0 flex sm:hidden items-center justify-center gap-0.5 min-[360px]:gap-1 px-0.5">
+          <div className="col-span-2 row-start-2 sm:col-span-1 sm:col-start-2 sm:row-start-1 min-w-0 flex sm:invisible items-center justify-center gap-1 px-0.5 py-1">
             {slides.map((_, i) => (
               <div
                 key={i}
@@ -223,7 +228,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
           <button
             type="button"
             onClick={handleNext}
-            className={`flex items-center gap-1 sm:gap-2 px-2.5 min-[360px]:px-3.5 sm:px-5 py-2 text-[11px] sm:text-sm font-bold whitespace-nowrap rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
+            className={`col-start-2 sm:col-start-3 row-start-1 min-h-11 min-w-0 flex items-center justify-center gap-1 sm:gap-2 px-2.5 min-[360px]:px-3.5 sm:px-5 py-2 text-xs sm:text-sm font-bold rounded-xl transition-all shadow-md active:scale-95 cursor-pointer ${
               isLastSlide
                 ? "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-blue-500/25"
                 : "bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-100 text-white dark:text-slate-900"
@@ -234,6 +239,7 @@ export default function TutorialModal({ isOpen, onClose }: TutorialModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

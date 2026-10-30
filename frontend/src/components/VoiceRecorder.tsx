@@ -222,7 +222,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     if (!finalTranscript && !interimTranscript) return null;
     return (
       <div
-        className="basis-full w-full min-w-0 h-5 overflow-hidden text-ellipsis whitespace-nowrap px-2 pb-1 text-start text-xs leading-5 text-slate-700 dark:text-slate-200"
+        className="basis-full w-full min-w-0 min-h-7 max-h-20 overflow-y-auto whitespace-pre-wrap break-words px-2 pb-1 text-start text-xs leading-relaxed text-slate-700 dark:text-slate-200"
         dir={language === "ur" ? "rtl" : "ltr"}
         aria-live="polite"
       >
@@ -241,10 +241,10 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   if (state === "error") {
     return (
-      <div className="w-full min-w-0 flex flex-nowrap items-center justify-between gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
+      <div className="w-full min-w-0 flex flex-wrap items-center justify-between gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
         <div className="min-w-0 flex items-center gap-1.5">
           <span className="shrink-0 text-sm">⚠️</span>
-          <span className="min-w-0 truncate whitespace-nowrap font-medium" title={errorMessage || t.voiceNote.recognitionFailed}>{errorMessage || t.voiceNote.recognitionFailed}</span>
+          <span className="min-w-0 break-words font-medium" title={errorMessage || t.voiceNote.recognitionFailed}>{errorMessage || t.voiceNote.recognitionFailed}</span>
         </div>
         <div className="shrink-0 flex items-center gap-1">
           <button
@@ -521,7 +521,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onKeyDown={handleKeyDown}
-      className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-all select-none touch-none ${
+      className={`ui-icon-button relative rounded-full flex items-center justify-center transition-all select-none touch-none ${
         disabled
           ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
           : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"

@@ -5,7 +5,9 @@
  * with Share Mashwara link creation and vector PDF export.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { useDialog } from "../hooks/useDialog";
 import { useTranslation } from "../i18n";
 import { useAuthStore } from "../store/authStore";
 import { createSharedMashwara, type RoleInfo } from "../api/client";
@@ -78,6 +80,10 @@ export default function MeetingCanvas({
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [exportStage, setExportStage] = useState<"idle" | "preparing" | "capturing" | "assembling" | "saving" | "downloaded">("idle");
   const [exportError, setExportError] = useState<string | null>(null);
+  const titleId = useId();
+  const panelRef = useDialog(isOpen, onClose);
+  const guestRef = useDialog(isOpen && isGuestConfirmOpen, () => setIsGuestConfirmOpen(false));
+  const shareRef = useDialog(isOpen && isShareModalOpen, () => setIsShareModalOpen(false));
 
   if (!isOpen) return null;
 
@@ -184,29 +190,29 @@ export default function MeetingCanvas({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+  return createPortal(
+    <div className="app-shell fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <div className="absolute inset-0 bg-slate-900/30 dark:bg-black/50 backdrop-blur-sm" onClick={onClose} />
 
       {/* Panel */}
-      <div className="relative w-full sm:w-[92vw] md:w-[680px] lg:w-[820px] xl:w-[900px] h-full bg-white dark:bg-[#0a0d18] shadow-2xl flex flex-col border-l border-slate-200/80 dark:border-white/[0.06] animate-slide-left">
+      <div ref={panelRef} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className="relative min-w-0 max-w-full w-full sm:w-[92vw] md:w-[680px] lg:w-[820px] xl:w-[900px] h-full bg-white dark:bg-[#0a0d18] shadow-2xl flex flex-col border-l border-slate-200/80 dark:border-white/[0.06] animate-slide-left">
         {/* ── Header ── */}
-        <div className="flex-shrink-0 px-3 sm:px-6 py-3.5 border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3">
+        <div className="flex-shrink-0 px-3 sm:px-6 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] border-b border-slate-200 dark:border-white/[0.06] bg-white/80 dark:bg-white/[0.03] backdrop-blur-md flex items-center justify-between gap-2 sm:gap-3">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-1.5 flex-shrink-0">
               <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
             </div>
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-slate-900 dark:text-white truncate">{displayDecisionTitle}</h2>
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest">{templateLabel}</p>
+              <h2 id={titleId} title={displayDecisionTitle} className="text-sm font-bold text-slate-900 dark:text-white line-clamp-2">{displayDecisionTitle}</h2>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest line-clamp-2">{templateLabel}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             {/* Live progress pill */}
             {isProcessing ? (
-              <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-full ring-1 ring-blue-500/20">
+              <span className="hidden lg:flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 rounded-full ring-1 ring-blue-500/20">
                 <svg className="animate-spin w-3 h-3" viewBox="0 0 24 24" fill="none">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -215,7 +221,7 @@ export default function MeetingCanvas({
               </span>
             ) : hasReport ? (
               <>
-                <span className={`hidden sm:flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ring-1 ${decStyle.pill}`}>
+                <span className={`hidden lg:flex items-center gap-1 text-[11px] font-bold px-2.5 py-1 rounded-full ring-1 ${decStyle.pill}`}>
                   {decStyle.icon} {decStyle.label}
                 </span>
 
@@ -223,7 +229,8 @@ export default function MeetingCanvas({
                 <button
                   onClick={handleShareClick}
                   disabled={isSharing}
-                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 border border-blue-500/20 text-blue-600 dark:text-blue-400 transition-all shadow-sm"
+                  aria-label={t.share.shareMashwara}
+                  className="min-w-11 min-h-11 flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 border border-blue-500/20 text-blue-600 dark:text-blue-400 transition-all shadow-sm"
                   title={t.share.shareMashwara}
                 >
                   {isSharing ? (
@@ -243,7 +250,8 @@ export default function MeetingCanvas({
                 <button
                   onClick={handleExportPdf}
                   disabled={exportStage !== "idle"}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
+                  aria-label={t.share.exportPdf}
+                  className={`min-w-11 min-h-11 flex items-center justify-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${
                     exportStage === "downloaded"
                       ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold"
                       : "text-slate-600 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] disabled:opacity-85"
@@ -265,7 +273,7 @@ export default function MeetingCanvas({
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                       </svg>
-                      <span className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+                      <span className="hidden sm:inline text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
                         {exportStage === "saving"
                           ? (t.share.pdfSaving || "Saving...")
                           : exportStage === "preparing"
@@ -287,7 +295,7 @@ export default function MeetingCanvas({
 
             <button
               onClick={onClose}
-              className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+              className="ui-icon-button p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
               aria-label={t.common.close}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -317,7 +325,7 @@ export default function MeetingCanvas({
               key={tTab}
               onClick={() => setTab(tTab)}
               disabled={tTab === "report" && !hasReport}
-              className={`relative flex-1 min-w-0 sm:flex-none py-3 px-1.5 sm:px-3 text-[11px] sm:text-xs font-semibold leading-snug tracking-wide transition-colors capitalize
+              className={`relative flex-1 min-w-0 sm:flex-none min-h-11 py-3 px-1.5 sm:px-3 text-xs font-semibold leading-snug tracking-wide transition-colors capitalize
                 ${tab === tTab
                   ? "text-blue-600 dark:text-blue-400"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
@@ -333,7 +341,7 @@ export default function MeetingCanvas({
         </div>
 
         {/* ── Scroll Content (reusing MashwaraResultView) ── */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="ui-scroll-region flex-1 overflow-y-auto custom-scrollbar pb-[env(safe-area-inset-bottom)]">
           <MashwaraResultView
             report={report}
             streams={streams}
@@ -352,13 +360,13 @@ export default function MeetingCanvas({
 
       {/* ── Guest Confirmation Modal ── */}
       {isGuestConfirmOpen && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+        <div className="ui-dialog-overlay fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div ref={guestRef} role="dialog" aria-modal="true" aria-labelledby={`${titleId}-guest`} tabIndex={-1} className="ui-dialog-panel overflow-y-auto w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
             <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center text-xl">
               🔗
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1.5">
+              <h3 id={`${titleId}-guest`} className="text-base font-bold text-slate-900 dark:text-white mb-1.5">
                 {t.share.guestConfirmTitle}
               </h3>
               <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
@@ -368,17 +376,18 @@ export default function MeetingCanvas({
                 {t.share.anyoneWithLink}
               </p>
             </div>
-            <div className="flex flex-col-reverse min-[380px]:flex-row justify-end gap-2.5 pt-2">
+            <div className="flex flex-col-reverse sm:flex-row sm:flex-wrap justify-end gap-2.5 pt-2">
               <button
                 onClick={() => setIsGuestConfirmOpen(false)}
-                className="px-4 py-2 rounded-xl text-center text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
+                data-autofocus
+                className="min-h-11 px-4 py-2 rounded-xl text-center text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-white/[0.06] transition-colors"
               >
                 {t.common.cancel}
               </button>
               <button
                 onClick={executeShare}
                 disabled={isSharing}
-                className="px-4 py-2 rounded-xl text-center text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow transition-all"
+                className="min-h-11 px-4 py-2 rounded-xl text-center text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow transition-all"
               >
                 {isSharing ? t.common.loading : t.share.guestConfirmButton}
               </button>
@@ -389,18 +398,19 @@ export default function MeetingCanvas({
 
       {/* ── Share Link Success Modal ── */}
       {isShareModalOpen && shareUrl && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
+        <div className="ui-dialog-overlay fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div ref={shareRef} role="dialog" aria-modal="true" aria-labelledby={`${titleId}-share`} tabIndex={-1} className="ui-dialog-panel overflow-y-auto w-full max-w-md bg-white dark:bg-[#0e1222] border border-slate-200 dark:border-white/10 rounded-2xl p-4 sm:p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="text-lg">✨</span>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                <h3 id={`${titleId}-share`} className="text-sm font-bold text-slate-900 dark:text-white">
                   {t.share.shareMashwara}
                 </h3>
               </div>
               <button
                 onClick={() => setIsShareModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                aria-label={t.common.close}
+                className="ui-icon-button text-slate-400 hover:text-slate-600 dark:hover:text-white"
               >
                 ✕
               </button>
@@ -423,7 +433,7 @@ export default function MeetingCanvas({
                   setCopied(true);
                   setTimeout(() => setCopied(false), 2500);
                 }}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                className={`min-h-11 shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   copied
                     ? "bg-emerald-600 text-white"
                     : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
@@ -485,6 +495,7 @@ export default function MeetingCanvas({
           <span>{exportError}</span>
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

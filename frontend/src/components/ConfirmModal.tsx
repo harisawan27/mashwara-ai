@@ -1,5 +1,7 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslation } from "../i18n";
+import { useDialog } from "../hooks/useDialog";
 
 interface ConfirmModalProps {
   isOpen: boolean;
@@ -25,6 +27,9 @@ export default function ConfirmModal({
   const { t } = useTranslation();
   const [isRendered, setIsRendered] = useState(isOpen);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
+  const titleId = useId();
+  const descriptionId = useId();
+  const dialogRef = useDialog(isRendered && !isAnimatingOut, onClose);
 
   const effectiveConfirmText = confirmText || t.common.confirm;
   const effectiveCancelText = cancelText || t.common.cancel;
@@ -51,8 +56,8 @@ export default function ConfirmModal({
 
   if (!isRendered) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-0">
+  return createPortal(
+    <div className="ui-dialog-overlay fixed inset-0 z-[100] flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
         className={`absolute inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-sm transition-opacity duration-200 ${
@@ -63,7 +68,13 @@ export default function ConfirmModal({
       
       {/* Modal */}
       <div 
-        className={`relative w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-hidden transition-all duration-200 ${
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        tabIndex={-1}
+        className={`ui-dialog-panel relative w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-3xl shadow-2xl overflow-y-auto transition-all duration-200 ${
           isAnimatingOut ? "opacity-0 scale-95 translate-y-4" : "opacity-100 scale-100 translate-y-0"
         }`}
       >
@@ -82,25 +93,26 @@ export default function ConfirmModal({
                 </svg>
               )}
             </div>
-            <h3 className="min-w-0 text-lg font-bold leading-snug text-slate-900 dark:text-white">
+            <h3 id={titleId} className="min-w-0 text-lg font-bold leading-snug text-slate-900 dark:text-white">
               {title}
             </h3>
           </div>
           
-          <div className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-6">
+          <div id={descriptionId} className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed mb-6 break-words">
             {description}
           </div>
           
-          <div className="flex flex-col-reverse min-[360px]:flex-row min-[360px]:items-center justify-end gap-2 sm:gap-3">
+          <div className="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:items-center justify-end gap-2 sm:gap-3">
             <button
+              data-autofocus
               onClick={handleClose}
-              className="px-4 py-2 text-center text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              className="min-h-11 px-4 py-2 text-center text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
             >
               {effectiveCancelText}
             </button>
             <button
               onClick={handleConfirm}
-              className={`px-4 py-2 text-center text-sm font-medium text-white rounded-xl transition-all shadow-md active:scale-95 ${
+              className={`min-h-11 px-4 py-2 text-center text-sm font-medium text-white rounded-xl transition-all shadow-md active:scale-95 ${
                 isDestructive 
                   ? "bg-red-600 hover:bg-red-700 shadow-red-500/20" 
                   : "bg-blue-600 hover:bg-blue-700 shadow-blue-500/20"
@@ -111,6 +123,7 @@ export default function ConfirmModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

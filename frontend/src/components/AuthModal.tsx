@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useId, useRef } from "react";
+import { createPortal } from "react-dom";
+import { useDialog } from "../hooks/useDialog";
 import { useAuthStore } from "../store/authStore";
 import { useSessionStore } from "../store/sessionStore";
 import { login, register, loginWithGoogle } from "../api/client";
@@ -27,20 +29,9 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
 
   const googleBtnContainerRef = useRef<HTMLDivElement>(null);
   const authCardRef = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useDialog(isOpen, onClose, authCardRef);
   const gsiInitializedRef = useRef(false);
-
-  // Close on Escape key
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && onClose) {
-        onClose();
-      }
-    };
-    if (isOpen) {
-      window.addEventListener("keydown", handleKeyDown);
-    }
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
 
   // Handle direct Google Identity Services ID token callback
   const handleGoogleCredential = async (response: { credential: string }) => {
@@ -86,6 +77,8 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
       return;
     }
 
+    let renderedWidth = 0;
+    let renderedTheme = "";
     const renderGsiButton = () => {
       if (!window.google?.accounts?.id || !googleBtnContainerRef.current) {
         return false;
@@ -101,21 +94,24 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           gsiInitializedRef.current = true;
         }
 
-        googleBtnContainerRef.current.innerHTML = "";
-
         // Check if dark theme is currently active
         const isDark = document.documentElement.classList.contains("dark");
-
         const containerWidth = Math.floor(googleBtnContainerRef.current.getBoundingClientRect().width);
+        const buttonWidth = Math.max(200, Math.min(380, containerWidth || 380));
+        const buttonTheme = isDark ? "filled_black" : "outline";
+        if (renderedWidth === buttonWidth && renderedTheme === buttonTheme && googleBtnContainerRef.current.childElementCount > 0) return true;
+        googleBtnContainerRef.current.innerHTML = "";
         window.google.accounts.id.renderButton(googleBtnContainerRef.current, {
           type: "standard",
-          theme: isDark ? "filled_black" : "outline",
+          theme: buttonTheme,
           size: "large",
           text: isLogin ? "signin_with" : "signup_with",
           shape: "rectangular",
           logo_alignment: "left",
-          width: Math.max(200, Math.min(380, containerWidth || 380)),
+          width: buttonWidth,
         });
+        renderedWidth = buttonWidth;
+        renderedTheme = buttonTheme;
         return true;
       } catch (err) {
         console.error("Failed to render Google Identity Services button:", err);
@@ -123,26 +119,31 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
       }
     };
 
+    const resizeObserver = new ResizeObserver(() => { renderGsiButton(); });
+    if (authCardRef.current) resizeObserver.observe(authCardRef.current);
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     if (!renderGsiButton()) {
       // Poll briefly if GSI script is still downloading
-      const interval = setInterval(() => {
+      interval = setInterval(() => {
         if (renderGsiButton()) {
           clearInterval(interval);
         }
       }, 150);
 
-      const timeout = setTimeout(() => {
+      timeout = setTimeout(() => {
         clearInterval(interval);
         if (!window.google?.accounts?.id) {
           setError("Google Identity Services failed to load. Please check your network or ad blocker.");
         }
       }, 6000);
 
-      return () => {
-        clearInterval(interval);
-        clearTimeout(timeout);
-      };
     }
+    return () => {
+      resizeObserver.disconnect();
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
   }, [isOpen, isLogin]);
 
   useEffect(() => {
@@ -190,8 +191,8 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  return createPortal(
+    <div className="ui-dialog-overlay fixed inset-0 z-[70] flex items-center justify-center p-4">
       {/* Background with blur and click-to-close */}
       <div 
         onClick={onClose} 
@@ -201,15 +202,19 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
       {/* Auth Card */}
       <div 
         ref={authCardRef}
-        className="relative glass-elevated rounded-3xl w-full min-w-0 max-w-md max-h-[calc(100dvh-2rem)] overflow-y-auto overflow-x-hidden custom-scrollbar p-4 min-[360px]:p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="ui-dialog-panel relative glass-elevated rounded-3xl w-full min-w-0 max-w-md overflow-y-auto overflow-x-hidden custom-scrollbar p-4 min-[360px]:p-6 sm:p-8 shadow-2xl animate-scale-in border border-slate-200/50 dark:border-white/10 bg-white/95 dark:bg-[#0c1222]/95 z-10"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dismiss Button */}
         {onClose && (
           <button
             onClick={onClose}
-            aria-label="Close"
-            className={`absolute top-4 ${isRTL ? "left-4" : "right-4"} p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all cursor-pointer`}
+            aria-label={t.common.close}
+            className={`ui-icon-button absolute top-2 ${isRTL ? "left-2" : "right-2"} p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5 transition-all cursor-pointer`}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -217,11 +222,11 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           </button>
         )}
 
-        <div className="text-center mb-6">
+        <div className="text-center mb-6 pt-3 px-2">
           <div className="inline-flex w-14 h-14 rounded-2xl bg-white shadow-lg ring-1 ring-slate-900/5 items-center justify-center mb-3 p-2.5">
             <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
           </div>
-          <h2 className="text-2xl mb-1.5 flex items-center justify-center gap-1.5 flex-wrap">
+          <h2 id={titleId} className="text-xl sm:text-2xl mb-1.5 flex items-center justify-center gap-1.5 flex-wrap">
             {isRTL || language === "roman-ur" ? (
               <>
                 <LocalizedBrand className="text-[1.1em] font-extrabold tracking-tight" />
@@ -274,10 +279,11 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
         {/* 2. Email + Password Form */}
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider text-start">
+            <label htmlFor={`${titleId}-email`} className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider text-start">
               {t.auth.emailLabel}
             </label>
             <input
+              id={`${titleId}-email`}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -289,11 +295,12 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           </div>
           
           <div>
-            <label className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider text-start">
+            <label htmlFor={`${titleId}-password`} className="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1.5 uppercase tracking-wider text-start">
               {t.auth.passwordLabel}
             </label>
             <div className="relative">
               <input
+                id={`${titleId}-password`}
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -348,7 +355,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           <button
             type="submit"
             disabled={loading || googleLoading || !email || !password || (!isLogin && !isPasswordValid)}
-            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-semibold py-3 rounded-xl shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center h-[50px] cursor-pointer"
+            className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-semibold py-3 px-4 rounded-xl shadow-lg shadow-blue-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center min-h-[50px] cursor-pointer"
           >
             {loading ? (
               <svg className="animate-spin w-5 h-5 text-white" viewBox="0 0 24 24" fill="none">
@@ -373,6 +380,7 @@ export default function AuthModal({ isOpen = true, onClose, onSuccess }: AuthMod
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

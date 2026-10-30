@@ -9,7 +9,9 @@ export default function ThemeToggle() {
     <div className="flex items-center bg-slate-200/50 dark:bg-white/5 border border-slate-300/50 dark:border-white/10 rounded-xl p-1">
       <button
         onClick={() => setTheme('light')}
-        className={`p-1.5 rounded-lg transition-all ${
+        aria-label={isRTL ? "روشن تھیم" : "Light Mode"}
+        aria-pressed={theme === 'light'}
+        className={`min-w-10 min-h-10 p-1.5 rounded-lg transition-all ${
           theme === 'light'
             ? 'bg-white text-blue-600 shadow-sm'
             : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white'
@@ -30,7 +32,9 @@ export default function ThemeToggle() {
       </button>
       <button
         onClick={() => setTheme('dark')}
-        className={`p-1.5 rounded-lg transition-all ${
+        aria-label={isRTL ? "ڈارک تھیم" : "Dark Mode"}
+        aria-pressed={theme === 'dark'}
+        className={`min-w-10 min-h-10 p-1.5 rounded-lg transition-all ${
           theme === 'dark'
             ? 'bg-blue-500/20 text-blue-400 dark:bg-slate-800 dark:text-white shadow-sm'
             : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white'
@@ -43,7 +47,9 @@ export default function ThemeToggle() {
       </button>
       <button
         onClick={() => setTheme('system')}
-        className={`p-1.5 rounded-lg transition-all ${
+        aria-label={isRTL ? "سسٹم تھیم" : "System Preference"}
+        aria-pressed={theme === 'system'}
+        className={`min-w-10 min-h-10 p-1.5 rounded-lg transition-all ${
           theme === 'system'
             ? 'bg-white text-blue-600 dark:bg-slate-800 dark:text-white shadow-sm'
             : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white'

@@ -164,13 +164,13 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   // Initial Unloaded Pill
   if (!audioUrl) {
     return (
-      <div className={`mt-3 min-w-0 flex items-center gap-2 ${className}`}>
+      <div className={`mt-3 min-w-0 flex flex-wrap items-center gap-2 ${className}`}>
         <button
           type="button"
           onClick={handleFetchAudio}
           disabled={isLoading}
           aria-label={t.summaryAudio?.listen || "Listen to Summary"}
-          className="h-9 max-w-full inline-flex flex-shrink-0 items-center gap-2 px-3 rounded-xl text-xs font-semibold whitespace-nowrap bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
+          className="min-h-11 max-w-full inline-flex items-center gap-2 py-2 px-3 rounded-xl text-xs font-semibold text-start bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 hover:from-blue-100 hover:to-indigo-100 dark:hover:from-blue-900/50 dark:hover:to-indigo-900/50 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-500/20 shadow-sm hover:shadow transition-all group disabled:opacity-60"
         >
           {isLoading ? (
             <>
@@ -193,7 +193,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
         </button>
 
         {error && (
-          <span className="min-w-0 truncate whitespace-nowrap text-xs text-red-500 dark:text-red-400" title={error}>
+          <span role="status" className="min-w-0 break-words text-xs text-red-500 dark:text-red-400" title={error}>
             ⚠️ {error}
           </span>
         )}
@@ -204,7 +204,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
   // Active Player Bar
   return (
     <div
-      className={`mt-3 w-full max-w-[430px] h-12 px-1.5 rounded-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/90 dark:border-white/10 shadow-sm flex items-center gap-1 min-[360px]:gap-1.5 transition-all animate-fade-in ${className}`}
+      className={`summary-audio-player mt-3 w-full min-w-0 max-w-[430px] min-h-14 p-1.5 rounded-xl bg-white/90 dark:bg-slate-900/90 backdrop-blur-md border border-slate-200/90 dark:border-white/10 shadow-sm flex items-center gap-1 min-[360px]:gap-1.5 transition-all animate-fade-in ${className}`}
       dir="ltr" // Player controls consistently LTR for waveform/scrubber ergonomics
     >
       <audio
@@ -232,7 +232,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           type="button"
           onClick={togglePlay}
           aria-label={isPlaying ? (t.summaryAudio?.pause || "Pause") : (t.summaryAudio?.playing || "Play")}
-          className="w-9 h-9 min-w-9 rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-500/20 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900"
+          className="audio-play ui-icon-button rounded-full bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center flex-shrink-0 shadow-sm shadow-blue-500/20 active:scale-95 transition-all focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:focus:ring-offset-slate-900"
         >
           {isPlaying ? (
             <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -245,7 +245,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           )}
         </button>
 
-        <span className="flex-shrink-0 whitespace-nowrap font-mono text-[9px] min-[360px]:text-[10px] text-slate-500 dark:text-slate-400">{formatTime(currentTime)}</span>
+        <span className="audio-current flex-shrink-0 whitespace-nowrap font-mono text-[10px] text-slate-500 dark:text-slate-400">{formatTime(currentTime)}</span>
 
         {/* Seek timeline */}
         <input
@@ -256,20 +256,21 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           value={currentTime}
           onChange={handleSeek}
           aria-label="Audio scrubber"
-          className="min-w-0 flex-1 h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full appearance-none cursor-pointer accent-blue-600 focus:outline-none"
+          className="audio-seek min-w-0 flex-1 h-1.5 bg-slate-200 dark:bg-slate-700/60 rounded-full appearance-none cursor-pointer accent-blue-600 focus:outline-none"
           style={{
-            background: `linear-gradient(to right, #2563EB ${(currentTime / (duration || 1)) * 100}%, rgba(148, 163, 184, 0.25) ${(currentTime / (duration || 1)) * 100}%)`,
-          }}
+            "--audio-progress": `${(currentTime / (duration || 1)) * 100}%`,
+          } as React.CSSProperties}
         />
 
-        <span className="flex-shrink-0 whitespace-nowrap font-mono text-[9px] min-[360px]:text-[10px] text-slate-500 dark:text-slate-400">{formatTime(duration)}</span>
+        <span className="audio-duration flex-shrink-0 whitespace-nowrap font-mono text-[10px] text-slate-500 dark:text-slate-400">{formatTime(duration)}</span>
 
         {/* Speed Toggle */}
         <button
           type="button"
           onClick={cyclePlaybackRate}
           title="Playback speed"
-          className="w-8 min-w-8 h-8 px-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[10px] font-bold whitespace-nowrap text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-center focus:outline-none"
+          aria-label="Playback speed"
+          className="audio-speed min-w-10 min-h-10 px-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold whitespace-nowrap text-slate-700 dark:text-slate-300 transition-colors flex items-center justify-center focus:outline-none"
         >
           {playbackRate}x
         </button>
@@ -280,7 +281,7 @@ export default function SummaryAudioPlayer({ meetingId, className = "" }: Summar
           onClick={handleReplay}
           title={t.summaryAudio?.replay || "Replay"}
           aria-label={t.summaryAudio?.replay || "Replay"}
-          className="w-8 min-w-8 h-8 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center justify-center transition-colors focus:outline-none"
+          className="audio-replay min-w-10 min-h-10 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 flex items-center justify-center transition-colors focus:outline-none"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />

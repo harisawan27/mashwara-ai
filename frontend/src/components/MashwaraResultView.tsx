@@ -141,8 +141,8 @@ function VoteTally({ votes, t }: { votes: Record<string, { vote: string; confide
           [t.votes.defer, counts.DEFER, "bg-amber-500", "text-amber-600 dark:text-amber-400"],
         ] as const
       ).map(([label, n, barCls, txtCls]) => (
-        <div key={label} className="flex items-center gap-3">
-          <span className={`text-[10px] font-bold w-16 truncate ${txtCls}`}>{label}</span>
+        <div key={label} className="grid grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_1.5rem] items-center gap-3">
+          <span className={`min-w-0 text-[11px] font-bold leading-relaxed break-words ${txtCls}`}>{label}</span>
           <div className="flex-1 h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
             <div className={`h-full rounded-full transition-all duration-700 ${barCls}`} style={{ width: `${pct(n)}%` }} />
           </div>
@@ -287,7 +287,7 @@ export default function MashwaraResultView({
 
       {/* Grid of Expert Cards */}
       {(activeStreams.length > 0 || isExportMode) && (
-        <div className={`grid grid-cols-1 ${isExportMode ? "gap-4" : "sm:grid-cols-2 gap-3"}`}>
+        <div className={`expert-grid grid grid-cols-1 ${isExportMode ? "gap-4" : "sm:grid-cols-2 gap-3"}`}>
           {roles.map((role: any) => {
             const stream = effectiveStreams[role.key];
             if (!stream && !isExportMode) return null;
@@ -357,9 +357,10 @@ export default function MashwaraResultView({
 
       {/* Prompt to switch to report when ready (in live interactive mode) */}
       {!isExportMode && hasReport && doneCount === totalAgents && totalAgents > 0 && onTabChange && (
-        <div
+        <button
+          type="button"
           onClick={() => onTabChange("report")}
-          className="mt-2 min-w-0 flex items-center justify-center gap-2 py-3 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
+          className="mt-2 min-h-11 w-full min-w-0 flex items-center justify-center gap-2 py-3 px-3 sm:px-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-indigo-500/10 dark:from-blue-500/20 dark:to-indigo-500/20 border border-blue-500/20 cursor-pointer hover:from-blue-500/20 hover:to-indigo-500/20 transition-all"
         >
           <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -368,7 +369,7 @@ export default function MashwaraResultView({
           <svg className="w-3.5 h-3.5 text-blue-500 rtl:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
-        </div>
+        </button>
       )}
     </section>
   );
@@ -412,7 +413,7 @@ export default function MashwaraResultView({
               </div>
             </div>
             {/* Text info */}
-            <div className="flex-1 text-center sm:text-start">
+            <div className="min-w-0 flex-1 text-center sm:text-start">
               <p className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">
                 {templateLabel} • {t.canvas.boardDecision}
               </p>
@@ -507,7 +508,7 @@ export default function MashwaraResultView({
 
         {/* Where Experts Agree & Disagree */}
         {(report.agreement || report.disagreement) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="report-card-grid grid grid-cols-1 sm:grid-cols-2 gap-4">
             {report.agreement && (
               <div className="rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-500/15 p-4 sm:p-5 break-inside-avoid page-break-inside-avoid">
                 <div className="flex items-center gap-2 mb-2.5">
@@ -538,7 +539,7 @@ export default function MashwaraResultView({
         )}
 
         {/* Risks + Actions */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="report-card-grid grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* Key Risks */}
           {report.key_risks?.length > 0 && (
             <div className="rounded-xl bg-red-50/60 dark:bg-red-950/20 border border-red-200/60 dark:border-red-500/15 p-4 sm:p-5 break-inside-avoid page-break-inside-avoid">
@@ -1181,7 +1182,7 @@ export default function MashwaraResultView({
   // Interactive Mode: Tab-based navigation
   // ───────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-w-0 p-3 min-[360px]:p-4 sm:p-6 pb-24">
+    <div className="result-view min-w-0 p-3 min-[360px]:p-4 sm:p-6 pb-8">
       {activeTab === "deliberation" && renderDeliberationSection()}
       {activeTab === "report" && renderReportSection()}
     </div>

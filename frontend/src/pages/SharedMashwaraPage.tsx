@@ -227,7 +227,7 @@ export default function SharedMashwaraPage() {
       )}
 
       {/* ── Top Navigation Bar (Hidden during Print) ── */}
-      <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#0a0d18]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/10 px-3 sm:px-8 py-3.5 flex items-center justify-between gap-2 sm:gap-4 print:hidden">
+      <header className="sticky top-0 z-40 bg-white/80 dark:bg-[#0a0d18]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/10 px-3 sm:px-8 py-3.5 pt-[max(0.875rem,env(safe-area-inset-top))] flex items-center justify-between gap-2 sm:gap-4 print:hidden">
         <Link to="/" className="min-w-0 flex items-center gap-2 sm:gap-3 group">
           <div className="w-8 h-8 rounded-lg bg-white dark:bg-slate-900 shadow ring-1 ring-slate-200 dark:ring-white/10 flex items-center justify-center p-1.5 flex-shrink-0 group-hover:scale-105 transition-transform">
             <img src="/boardroom-ai.svg" alt="Mashwara AI Logo" className="w-full h-full object-contain" />
@@ -242,7 +242,7 @@ export default function SharedMashwaraPage() {
           {/* Copy Link Button */}
           <button
             onClick={handleCopyLink}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+            className={`min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
               copied
                 ? "bg-emerald-50 dark:bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400"
                 : "bg-white dark:bg-white/[0.04] border-slate-200 dark:border-white/10 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-white/[0.08]"
@@ -270,7 +270,7 @@ export default function SharedMashwaraPage() {
           <button
             onClick={handleExportPdf}
             disabled={exportStage !== "idle"}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all ${
+            className={`min-h-11 min-w-11 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-all ${
               exportStage === "downloaded"
                 ? "bg-emerald-600 text-white"
                 : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-85"
@@ -321,10 +321,10 @@ export default function SharedMashwaraPage() {
         </div>
 
         {/* Tab Selection */}
-        <div className="flex gap-2 border-b border-slate-200 dark:border-white/10 mb-6 overflow-x-auto custom-scrollbar">
+        <div className="grid grid-cols-2 gap-2 border-b border-slate-200 dark:border-white/10 mb-6">
           <button
             onClick={() => setActiveTab("report")}
-            className={`py-3 px-4 text-xs font-bold transition-all relative shrink-0 whitespace-nowrap ${
+            className={`min-w-0 min-h-11 py-3 px-2 sm:px-4 text-xs font-bold transition-all relative ${
               activeTab === "report"
                 ? "text-blue-600 dark:text-blue-400"
                 : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
@@ -338,7 +338,7 @@ export default function SharedMashwaraPage() {
 
           <button
             onClick={() => setActiveTab("deliberation")}
-            className={`py-3 px-4 text-xs font-bold transition-all relative shrink-0 whitespace-nowrap ${
+            className={`min-w-0 min-h-11 py-3 px-2 sm:px-4 text-xs font-bold transition-all relative ${
               activeTab === "deliberation"
                 ? "text-blue-600 dark:text-blue-400"
                 : "text-slate-500 hover:text-slate-900 dark:hover:text-slate-300"
@@ -362,6 +362,7 @@ export default function SharedMashwaraPage() {
             onTabChange={(newTab) => setActiveTab(newTab)}
             mode="interactive"
             customT={t}
+            language={reportLang}
           />
         </div>
 

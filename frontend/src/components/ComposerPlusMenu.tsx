@@ -16,6 +16,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "../i18n";
+import Popover from "./Popover";
 
 interface ComposerPlusMenuProps {
   docInputRef: React.RefObject<HTMLInputElement | null>;
@@ -32,47 +33,19 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
   onWebSearchModeChange,
   disabled = false,
 }) => {
-  const { t, isRTL } = useTranslation();
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const [webSubOpen, setWebSubOpen] = useState(false);
   const plusButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close on Escape, return focus to + button
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        setIsOpen(false);
-        setWebSubOpen(false);
-        plusButtonRef.current?.focus();
-      }
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [isOpen]);
-
-  // Auto-focus first item when menu opens
+  // Keep keyboard focus inside the active submenu as its content changes.
   useEffect(() => {
     if (isOpen && menuRef.current) {
       const firstBtn = menuRef.current.querySelector<HTMLButtonElement>("button");
       firstBtn?.focus();
     }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !plusButtonRef.current?.contains(target)) {
-        setIsOpen(false);
-        setWebSubOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [isOpen]);
+  }, [isOpen, webSubOpen]);
 
   const close = () => {
     setIsOpen(false);
@@ -110,14 +83,14 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
       <button
         type="button"
         onClick={onClick}
-        className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors text-start rounded-lg ${
+        className={`w-full min-h-11 flex items-center gap-2.5 px-3 py-2 text-sm font-medium transition-colors text-start rounded-lg ${
           active
             ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300"
             : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
         }`}
       >
         <span className="text-sm w-5 text-center flex-shrink-0">{icon}</span>
-        <span className="flex-1 min-w-0 truncate">{label}</span>
+        <span className="flex-1 min-w-0 break-words">{label}</span>
         {active && <span className="text-blue-500 text-xs font-bold">✓</span>}
       </button>
     </div>
@@ -131,7 +104,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
           key={mode}
           type="button"
           onClick={() => handleWebMode(mode)}
-          className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 text-sm font-medium whitespace-nowrap rounded-lg transition-colors text-start ${
+          className={`w-full min-h-11 flex items-center gap-2.5 px-3 py-2 text-sm font-medium rounded-lg transition-colors text-start ${
             webSearchMode === mode
               ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300 font-semibold"
               : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700/50"
@@ -168,7 +141,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
           <button
             type="button"
             onClick={() => setWebSubOpen(false)}
-            className="w-full min-h-10 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold whitespace-nowrap text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
+            className="w-full min-h-11 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
           >
             <span className="text-slate-400 rtl:rotate-180">‹</span>
             <span className="truncate">Web Research</span>
@@ -184,7 +157,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
           <button
             type="button"
             onClick={() => setWebSubOpen(true)}
-            className={`w-full min-h-10 flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors text-start ${
+            className={`w-full min-h-11 flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-start ${
               webSearchMode !== "off"
                 ? "bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-300"
                 : "text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/60"
@@ -211,7 +184,7 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
         aria-label="Add context"
         aria-expanded={isOpen}
         aria-haspopup="true"
-        className={`flex flex-shrink-0 items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+        className={`ui-icon-button flex flex-shrink-0 items-center gap-1 px-2 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
           isOpen
             ? "bg-blue-50 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400"
             : disabled
@@ -225,11 +198,15 @@ export const ComposerPlusMenu: React.FC<ComposerPlusMenuProps> = ({
       </button>
 
       {isOpen && (
-        <div
-          className={`absolute z-40 bottom-full mb-2 ${isRTL ? "right-0" : "left-0"} w-[216px] max-w-[calc(100vw-24px)] bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl overflow-hidden animate-fade-in`}
+        <Popover
+          anchorRef={plusButtonRef}
+          onClose={close}
+          side="top"
+          width={248}
+          className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-white/10 rounded-xl shadow-xl animate-fade-in"
         >
           <MenuContent />
-        </div>
+        </Popover>
       )}
     </div>
   );
