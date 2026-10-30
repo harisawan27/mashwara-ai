@@ -217,7 +217,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
         ) : (
           <div className="space-y-1">
             {sessions.map((s) => (
-              <div key={s.id} className="group relative flex items-center">
+              <div key={s.id} className="group relative isolate flex items-center">
                 <button
                   onClick={() => {
                     if (editingId !== s.id) {
@@ -255,7 +255,7 @@ export default function Sidebar({ onSelectSession, selectedSessionId, isOpen = f
                     )}
                   </div>
                 </button>
-                <div className={`absolute ${isRTL ? "left-2" : "right-2"} flex items-center z-50`}>
+                <div className={`absolute ${isRTL ? "left-2" : "right-2"} flex items-center`}>
                   <button 
                     onClick={(e) => { e.stopPropagation(); historyButtonRef.current = e.currentTarget; setOpenDropdownId(openDropdownId === s.id ? null : s.id); }}
                     aria-label={s.title}

@@ -11,7 +11,7 @@
  * 7. Physical LEFT stays left even in Urdu RTL.
  */
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { useSpeechInput } from "../hooks/useSpeechInput";
 import { useTranslation } from "../i18n";
 
@@ -28,7 +28,8 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
 }) => {
   const { t, language } = useTranslation();
   const [dragOffset, setDragOffset] = useState<{ dx: number; dy: number }>({ dx: 0, dy: 0 });
-  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+  const pointerStartRef = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const gestureSurfaceRef = useRef<HTMLDivElement>(null);
   const micButtonRef = useRef<HTMLButtonElement>(null);
 
   const {
@@ -60,7 +61,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   });
 
   // Notify parent component (Dashboard) when voice recording becomes active or idle
-  useEffect(() => {
+  useLayoutEffect(() => {
     const isActive = state !== "idle";
     onActiveChange?.(isActive);
   }, [state, onActiveChange]);
@@ -83,23 +84,34 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   // Unified Pointer Event Handlers for Press-and-Hold
   // ---------------------------------------------------------------------------
+  const releaseGestureCapture = (pointerId: number) => {
+    try {
+      gestureSurfaceRef.current?.releasePointerCapture(pointerId);
+    } catch {
+      // The browser may already have released a cancelled pointer.
+    }
+  };
+
   const handlePointerDown = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (disabled || state === "finalizing" || state === "locked" || state === "paused") return;
-    if (e.button !== 0) return; // Primary pointer button only
+    if (disabled || state !== "idle" || pointerStartRef.current) return;
+    if (e.button !== 0 || !e.isPrimary) return;
 
     try {
-      e.currentTarget.setPointerCapture(e.pointerId);
+      // This outer element survives the idle -> permission -> recording transition.
+      // Capturing on the mic itself loses the finger when that button is replaced.
+      gestureSurfaceRef.current?.setPointerCapture(e.pointerId);
     } catch {
       // ignore
     }
 
-    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    pointerStartRef.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
     setDragOffset({ dx: 0, dy: 0 });
-    startRecording();
+    if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
+    void startRecording();
   };
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLButtonElement>) => {
-    if (!pointerStartRef.current) return;
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointerStartRef.current || pointerStartRef.current.pointerId !== e.pointerId) return;
 
     const dx = e.clientX - pointerStartRef.current.x;
     const dy = e.clientY - pointerStartRef.current.y;
@@ -108,11 +120,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     // 1. Slide UP to Lock (dy <= -65px)
     if (dy <= -65) {
       lockRecording();
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
+      releaseGestureCapture(e.pointerId);
       setDragOffset({ dx: 0, dy: 0 });
       pointerStartRef.current = null;
       return;
@@ -122,22 +130,15 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     // Physical left is strictly preserved even in Urdu RTL
     if (dx <= -80) {
       cancelRecording();
-      try {
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      } catch {
-        // ignore
-      }
+      releaseGestureCapture(e.pointerId);
       setDragOffset({ dx: 0, dy: 0 });
       pointerStartRef.current = null;
     }
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointerStartRef.current || pointerStartRef.current.pointerId !== e.pointerId) return;
+    releaseGestureCapture(e.pointerId);
 
     pointerStartRef.current = null;
     setDragOffset({ dx: 0, dy: 0 });
@@ -147,17 +148,26 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     }
   };
 
-  const handlePointerCancel = (e: React.PointerEvent<HTMLButtonElement>) => {
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!pointerStartRef.current || pointerStartRef.current.pointerId !== e.pointerId) return;
+    releaseGestureCapture(e.pointerId);
     pointerStartRef.current = null;
     setDragOffset({ dx: 0, dy: 0 });
     if (state === "recording" || state === "requesting_permission") {
       cancelRecording();
     }
+  };
+
+  // Every render branch keeps this same outer DOM node and its captured pointer.
+  const gestureSurfaceProps = {
+    ref: gestureSurfaceRef,
+    onPointerMove: handlePointerMove,
+    onPointerUp: handlePointerUp,
+    onPointerCancel: handlePointerCancel,
+    onContextMenu: (event: React.MouseEvent<HTMLDivElement>) => {
+      if (pointerStartRef.current) event.preventDefault();
+    },
+    className: state === "idle" ? "min-w-0 inline-flex shrink-0" : "w-full min-w-0",
   };
 
   // Keyboard accessibility
@@ -241,6 +251,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   if (state === "error") {
     return (
+      <div {...gestureSurfaceProps}>
       <div className="w-full min-w-0 flex flex-wrap items-center justify-between gap-1.5 sm:gap-3 px-2 sm:px-3 py-1.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200/80 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-200 animate-fade-in select-none">
         <div className="min-w-0 flex items-center gap-1.5">
           <span className="shrink-0 text-sm">⚠️</span>
@@ -264,6 +275,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           </button>
         </div>
       </div>
+      </div>
     );
   }
 
@@ -272,6 +284,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   if (state === "finalizing") {
     return (
+      <div {...gestureSurfaceProps}>
       <div className="w-full min-w-0 flex items-center justify-between gap-2 px-3 py-2 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200/70 dark:border-blue-800/50 rounded-xl animate-pulse select-none">
         <div className="flex items-center gap-2.5 min-w-0">
           <span className="text-base flex-shrink-0">✨</span>
@@ -286,6 +299,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
           </svg>
         </div>
       </div>
+      </div>
     );
   }
 
@@ -294,6 +308,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // ---------------------------------------------------------------------------
   if (state === "locked" || state === "paused") {
     return (
+      <div {...gestureSurfaceProps}>
       <div
         className="w-full min-w-0 flex flex-wrap items-center justify-between gap-1 px-1 min-[360px]:px-2 sm:px-3 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm animate-fade-in select-none"
         dir="ltr"
@@ -389,6 +404,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         </div>
         {renderLiveTranscript()}
       </div>
+      </div>
     );
   }
 
@@ -404,6 +420,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     const isNearLock = dragOffset.dy <= -35;
 
     return (
+      <div {...gestureSurfaceProps}>
       <div
         className="w-full min-w-0 flex flex-wrap items-center justify-between px-1.5 min-[360px]:px-2.5 py-1.5 bg-slate-50 dark:bg-slate-800/95 border border-slate-200/80 dark:border-slate-700/80 rounded-xl shadow-sm select-none relative"
         dir="ltr"
@@ -483,9 +500,6 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             ref={micButtonRef}
             type="button"
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
             onKeyDown={handleKeyDown}
             className="w-10 h-10 min-w-[40px] min-h-[40px] rounded-full flex items-center justify-center bg-red-500 text-white scale-110 shadow-lg shadow-red-500/35 ring-4 ring-red-500/20 select-none touch-none transition-transform"
             style={{
@@ -505,6 +519,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         </div>
         {renderLiveTranscript()}
       </div>
+      </div>
     );
   }
 
@@ -512,14 +527,12 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
   // 5. IDLE STATE (Standard Mic Button in Composer Toolbar)
   // ---------------------------------------------------------------------------
   return (
+    <div {...gestureSurfaceProps}>
     <button
       ref={micButtonRef}
       type="button"
       disabled={disabled}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
       onKeyDown={handleKeyDown}
       className={`ui-icon-button relative rounded-full flex items-center justify-center transition-all select-none touch-none ${
         disabled
@@ -538,5 +551,6 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         />
       </svg>
     </button>
+    </div>
   );
 };
